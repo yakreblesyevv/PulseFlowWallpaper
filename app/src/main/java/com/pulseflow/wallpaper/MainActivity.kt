@@ -1,7 +1,9 @@
 package com.pulseflow.wallpaper
 
+import android.Manifest
 import android.app.*
 import android.content.*
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -11,6 +13,8 @@ import android.widget.*
 
 class MainActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private var liveBeatsSwitch: Switch? = null
+    private val audioPermissionRequest = 1301
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,7 +121,7 @@ class MainActivity : Activity() {
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
         root.addView(text("Fluid Wallpaper Lab", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-        root.addView(text("v0.12 • Personalization", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
+        root.addView(text("v0.13 • Live Beats", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
         root.addView(previewCard, LinearLayout.LayoutParams(-1, dp(235)).apply {
             topMargin = dp(12)
             bottomMargin = dp(8)
@@ -223,9 +227,28 @@ class MainActivity : Activity() {
         toggle("Adaptive Launcher Color Scheme", FlowSettings.loadAdaptiveColors(this)) { FlowSettings.saveAdaptiveColors(this, it) }
         toggle("Performance Mode", FlowSettings.loadPerformanceMode(this)) { FlowSettings.savePerformanceMode(this, it) }
 
-        section("LIVE BEATS")
-        toggle("Live Beats", FlowSettings.loadLiveBeats(this), false) { FlowSettings.saveLiveBeats(this, it) }
-        root.addView(text("Audio-reactive engine sonraki aşamada bağlanacak.", 11f, Color.GRAY))
+        section("LIVE BEATS", "Müzik çalarken akış gerçek ses verisine göre tepki verir.")
+        val liveBeats = Switch(this).apply {
+            text = "Live Beats"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            isChecked = FlowSettings.loadLiveBeats(this@MainActivity)
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            background = cardBackground(40, 38)
+        }
+        liveBeatsSwitch = liveBeats
+        liveBeats.setOnCheckedChangeListener { button, enabled ->
+            if (enabled && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                button.isChecked = false
+                requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), audioPermissionRequest)
+            } else {
+                FlowSettings.saveLiveBeats(this@MainActivity, enabled)
+                if (enabled) BeatAnalyzer.start(this@MainActivity) else BeatAnalyzer.stop()
+                reloadPreviews()
+            }
+        }
+        root.addView(liveBeats, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        root.addView(text("İlk açılışta yalnızca ses görselleştirmesi için mikrofon/ses izni ister.", 11f, Color.LTGRAY))
         slider("Strength", 0f, 1f, FlowSettings.loadBeatStrength(this)) { FlowSettings.saveBeatStrength(this, it) }
 
         section("PERSISTENCE")
@@ -241,6 +264,9 @@ class MainActivity : Activity() {
                 FlowSettings.saveBlur(this@MainActivity, 0.72f)
                 FlowSettings.saveBrightness(this@MainActivity, 1.0f)
                 FlowSettings.saveGraphicsMode(this@MainActivity, "blur")
+                FlowSettings.saveLiveBeats(this@MainActivity, false)
+                FlowSettings.saveBeatStrength(this@MainActivity, 0.55f)
+                BeatAnalyzer.stop()
                 PaletteStore.savePreset(this@MainActivity, 7)
                 recreate()
             }
@@ -259,5 +285,26 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         setContentView(frame)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == audioPermissionRequest) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                FlowSettings.saveLiveBeats(this, true)
+                liveBeatsSwitch?.isChecked = true
+                BeatAnalyzer.start(this)
+            } else {
+                FlowSettings.saveLiveBeats(this, false)
+                liveBeatsSwitch?.isChecked = false
+                Toast.makeText(this, "Live Beats için ses izni gerekiyor.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        if (!FlowSettings.loadLiveBeats(this)) BeatAnalyzer.stop()
+        super.onDestroy()
     }
 }
