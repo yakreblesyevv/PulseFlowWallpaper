@@ -281,7 +281,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun enableLiveBeats(button: Switch) {
+    private fun enableLiveBeats(button: CompoundButton) {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             suppressLiveBeatsCallback = true
             button.isChecked = false
