@@ -11,16 +11,18 @@ class FlowPreviewView @JvmOverloads constructor(private val c: Context, a: Attri
 
     fun reload() {
         renderer.colors = PaletteStore.load(c)
-        renderer.speed = FlowSettings.loadSpeed(c)
+        renderer.speedMin = FlowSettings.loadSpeedMin(c)
+        renderer.speedMax = FlowSettings.loadSpeedMax(c)
         renderer.scale = FlowSettings.loadScale(c)
         renderer.brightness = FlowSettings.loadBrightness(c)
         renderer.blur = FlowSettings.loadBlur(c)
+        renderer.graphicsMode = FlowSettings.loadGraphicsMode(c)
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         renderer.draw(canvas)
-        postInvalidateDelayed(16)
+        postInvalidateDelayed(if (FlowSettings.loadPerformanceMode(c)) 33 else 16)
     }
 }
