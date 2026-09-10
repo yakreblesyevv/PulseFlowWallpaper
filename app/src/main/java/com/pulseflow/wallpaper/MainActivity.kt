@@ -1,95 +1,34 @@
 package com.pulseflow.wallpaper
 
-import android.app.Activity
-import android.app.WallpaperManager
-import android.content.ComponentName
-import android.content.Intent
+import android.app.*
+import android.content.*
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.SeekBar
-import android.widget.TextView
+import android.widget.*
 
 class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(30,42,30,28);setBackgroundColor(Color.rgb(7,8,14))}
+        root.addView(TextView(this).apply{text="PULSEFLOW";textSize=27f;setTextColor(Color.WHITE);gravity=Gravity.CENTER})
+        root.addView(TextView(this).apply{text="Fluid Wallpaper Lab";textSize=14f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,4,0,14)})
+        val preview=FlowPreviewView(this); root.addView(preview,LinearLayout.LayoutParams(-1,0,1f))
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 48, 32, 32)
-            setBackgroundColor(Color.rgb(7, 8, 14))
-            gravity = Gravity.CENTER_HORIZONTAL
+        fun slider(title:String,min:Float,max:Float,current:Float,onChange:(Float)->Unit){
+            val label=TextView(this).apply{setTextColor(Color.WHITE);textSize=15f;setPadding(4,12,4,0);text="$title  %.2f".format(current)};root.addView(label)
+            root.addView(SeekBar(this).apply{this.max=100;progress=(((current-min)/(max-min))*100).toInt().coerceIn(0,100);setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
+                override fun onProgressChanged(s:SeekBar?,p:Int,f:Boolean){val v=min+(p/100f)*(max-min);label.text="$title  %.2f".format(v);onChange(v);preview.reload()}
+                override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){}
+            })},LinearLayout.LayoutParams(-1,-2))
         }
 
-        root.addView(TextView(this).apply {
-            text = "PULSEFLOW"
-            textSize = 28f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(-1, -2))
+        slider("Akış Hızı",0.12f,2.5f,FlowSettings.loadSpeed(this)){FlowSettings.saveSpeed(this,it)}
+        slider("Fluid Scale",0.65f,1.65f,FlowSettings.loadScale(this)){FlowSettings.saveScale(this,it)}
+        slider("Blur / Yumuşaklık",0.25f,1f,FlowSettings.loadBlur(this)){FlowSettings.saveBlur(this,it)}
+        slider("Brightness",0.35f,1.35f,FlowSettings.loadBrightness(this)){FlowSettings.saveBrightness(this,it)}
 
-        root.addView(TextView(this).apply {
-            text = "Fluid live wallpaper"
-            textSize = 15f
-            setTextColor(Color.LTGRAY)
-            gravity = Gravity.CENTER
-            setPadding(0, 8, 0, 20)
-        })
-
-        val preview = FlowPreviewView(this)
-        root.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        val speedLabel = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setPadding(0, 18, 0, 4)
-        }
-
-        val currentSpeed = FlowSettings.loadSpeed(this)
-        speedLabel.text = "Akış hızı: %.1fx".format(currentSpeed)
-        root.addView(speedLabel, LinearLayout.LayoutParams(-1, -2))
-
-        val speedBar = SeekBar(this).apply {
-            max = 100
-            progress = (((currentSpeed - 0.15f) / (2.5f - 0.15f)) * 100f).toInt().coerceIn(0, 100)
-            setPadding(12, 0, 12, 10)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val speed = 0.15f + (progress / 100f) * (2.5f - 0.15f)
-                    preview.setFlowSpeed(speed)
-                    speedLabel.text = "Akış hızı: %.1fx".format(speed)
-                    FlowSettings.saveSpeed(this@MainActivity, speed)
-                }
-
-                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-            })
-        }
-        root.addView(speedBar, LinearLayout.LayoutParams(-1, -2))
-
-        root.addView(TextView(this).apply {
-            text = "Sola: daha sakin   •   Sağa: daha hızlı"
-            setTextColor(Color.LTGRAY)
-            gravity = Gravity.CENTER
-            textSize = 13f
-            setPadding(0, 0, 0, 14)
-        }, LinearLayout.LayoutParams(-1, -2))
-
-        root.addView(Button(this).apply {
-            text = "Set Live Wallpaper"
-            setOnClickListener {
-                startActivity(
-                    Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(
-                        WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                        ComponentName(this@MainActivity, PulseWallpaperService::class.java)
-                    )
-                )
-            }
-        }, LinearLayout.LayoutParams(-1, -2))
-
+        root.addView(Button(this).apply{text="CANLI DUVAR KAĞIDI OLARAK AYARLA";setOnClickListener{startActivity(Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,ComponentName(this@MainActivity,PulseWallpaperService::class.java))) }},LinearLayout.LayoutParams(-1,-2))
         setContentView(root)
     }
 }
