@@ -33,7 +33,7 @@ class PlaybackCaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopCapture()
+            stopCapture(true)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -57,13 +57,13 @@ class PlaybackCaptureService : Service() {
 
     private fun startCapture(resultCode: Int, data: Intent) {
         if (Build.VERSION.SDK_INT < 29) return
-        stopCapture()
+        stopCapture(true)
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val mp = manager.getMediaProjection(resultCode, data)
         projection = mp
         mp.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
-                stopCapture()
+                stopCapture(false)
                 stopSelf()
             }
         }, android.os.Handler(mainLooper))
@@ -104,18 +104,23 @@ class PlaybackCaptureService : Service() {
         }
     }
 
-    private fun stopCapture() {
+    private fun stopCapture(stopProjection: Boolean) {
         running = false
-        try { recorder?.stop() } catch (_: Throwable) {}
-        try { recorder?.release() } catch (_: Throwable) {}
+        val currentRecorder = recorder
         recorder = null
-        try { projection?.stop() } catch (_: Throwable) {}
+        try { currentRecorder?.stop() } catch (_: Throwable) {}
+        try { currentRecorder?.release() } catch (_: Throwable) {}
+
+        val currentProjection = projection
         projection = null
+        if (stopProjection) {
+            try { currentProjection?.stop() } catch (_: Throwable) {}
+        }
         BeatAnalyzer.stop()
     }
 
     override fun onDestroy() {
-        stopCapture()
+        stopCapture(true)
         super.onDestroy()
     }
 
@@ -139,7 +144,7 @@ class PlaybackCaptureService : Service() {
             .setContentTitle("PulseFlow Live Beats aktif")
             .setContentText("Müzik ritmi duvar kağıdına aktarılıyor")
             .setOngoing(true)
-            .addAction(Notification.Action.Builder(null, "Durdur", pending).build())
+            .addAction(android.R.drawable.ic_media_pause, "Durdur", pending)
             .build()
     }
 }
