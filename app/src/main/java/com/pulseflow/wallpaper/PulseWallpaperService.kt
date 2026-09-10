@@ -1,6 +1,8 @@
 package com.pulseflow.wallpaper
 
+import android.Manifest
 import android.content.*
+import android.content.pm.PackageManager
 import android.os.Build
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
@@ -34,6 +36,10 @@ class PulseWallpaperService : WallpaperService() {
             renderer.graphicsMode = FlowSettings.loadGraphicsMode(ctx)
             renderer.beatStrength = FlowSettings.loadBeatStrength(ctx)
             frameDelay = if (FlowSettings.loadPerformanceMode(ctx)) 33L else 16L
+
+            val hasAudio = Build.VERSION.SDK_INT < 23 || checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (visible && FlowSettings.loadLiveBeats(ctx) && hasAudio) BeatAnalyzer.start(ctx)
+            else if (!FlowSettings.loadLiveBeats(ctx)) BeatAnalyzer.stop()
         }
 
         override fun onCreate(holder: SurfaceHolder?) {
@@ -79,6 +85,7 @@ class PulseWallpaperService : WallpaperService() {
             visible = false
             handler.removeCallbacks(tick)
             try { unregisterReceiver(receiver) } catch (_: Throwable) {}
+            BeatAnalyzer.stop()
             super.onDestroy()
         }
     }
