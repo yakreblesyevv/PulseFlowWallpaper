@@ -13,10 +13,23 @@ import android.service.notification.StatusBarNotification
 
 class MusicNotificationListener : NotificationListenerService() {
 
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        if (!FlowSettings.loadAlbumColors(this)) return
+        activeNotifications
+            ?.sortedByDescending { it.postTime }
+            ?.firstOrNull { isMediaNotification(it.notification) }
+            ?.let { process(it) }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        val notification = sbn?.notification ?: return
-        val mediaToken = notification.extras.getParcelable<MediaSession.Token>(Notification.EXTRA_MEDIA_SESSION)
-        if (notification.category != Notification.CATEGORY_TRANSPORT && mediaToken == null) return
+        if (!FlowSettings.loadAlbumColors(this)) return
+        sbn?.let { process(it) }
+    }
+
+    private fun process(sbn: StatusBarNotification) {
+        val notification = sbn.notification ?: return
+        if (!isMediaNotification(notification)) return
 
         val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val artist = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
@@ -26,13 +39,26 @@ class MusicNotificationListener : NotificationListenerService() {
             .putString("artist", artist)
             .apply()
 
-        val artwork = extractArtwork(notification)
-        PaletteStore.save(this, artwork)
+        extractArtwork(notification)?.let { PaletteStore.save(this, it) }
+    }
+
+    private fun isMediaNotification(notification: Notification): Boolean {
+        val mediaToken = if (Build.VERSION.SDK_INT >= 33) {
+            notification.extras.getParcelable(Notification.EXTRA_MEDIA_SESSION, MediaSession.Token::class.java)
+        } else {
+            @Suppress("DEPRECATION") notification.extras.getParcelable<MediaSession.Token>(Notification.EXTRA_MEDIA_SESSION)
+        }
+        return notification.category == Notification.CATEGORY_TRANSPORT || mediaToken != null
     }
 
     private fun extractArtwork(notification: Notification): Bitmap? {
-        notification.extras.getParcelable<Bitmap>(Notification.EXTRA_LARGE_ICON_BIG)?.let { return it }
-        notification.extras.getParcelable<Bitmap>(Notification.EXTRA_LARGE_ICON)?.let { return it }
+        if (Build.VERSION.SDK_INT >= 33) {
+            notification.extras.getParcelable(Notification.EXTRA_LARGE_ICON_BIG, Bitmap::class.java)?.let { return it }
+            notification.extras.getParcelable(Notification.EXTRA_LARGE_ICON, Bitmap::class.java)?.let { return it }
+        } else {
+            @Suppress("DEPRECATION") notification.extras.getParcelable<Bitmap>(Notification.EXTRA_LARGE_ICON_BIG)?.let { return it }
+            @Suppress("DEPRECATION") notification.extras.getParcelable<Bitmap>(Notification.EXTRA_LARGE_ICON)?.let { return it }
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             notification.getLargeIcon()?.let { icon ->
@@ -43,20 +69,12 @@ class MusicNotificationListener : NotificationListenerService() {
     }
 
     private fun iconToBitmap(icon: Icon): Bitmap? {
-        val drawable = try {
-            icon.loadDrawable(this)
-        } catch (_: Exception) {
-            null
-        } ?: return null
-
+        val drawable = try { icon.loadDrawable(this) } catch (_: Exception) { null } ?: return null
         return drawableToBitmap(drawable)
     }
 
     private fun drawableToBitmap(drawable: Drawable): Bitmap {
-        if (drawable is BitmapDrawable && drawable.bitmap != null) {
-            return drawable.bitmap
-        }
-
+        if (drawable is BitmapDrawable && drawable.bitmap != null) return drawable.bitmap
         val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 512
         val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 512
         return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
