@@ -24,5 +24,5 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: PulseFlow-v0.7-viscous-flow-apk
+          name: PulseFlow-v0.8-settings-expansion-apk
           path: app/build/outputs/apk/release/app-release.apk
