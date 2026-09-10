@@ -50,24 +50,33 @@ class FlowRenderer {
 
         float2 liquidWarp(float2 p, float t, float b, float low) {
             float2 q = p;
+
             float a = field(q*0.82 + float2(0.0, t*0.032), t);
             float bb = field(rot(q, 1.5708)*0.88 + float2(t*0.026, 0.0), t+5.0);
-            q += float2(a, bb) * (0.29 + b*0.12);
+            q += float2(a, bb) * (0.29 + b*0.16);
 
             float c = field(q*1.24 + float2(t*0.018, -t*0.023), t+10.0);
             float d = field(rot(q, -0.73)*1.18 + float2(-t*0.020, t*0.015), t+16.0);
-            q += float2(c, d) * (0.18 + low*0.09);
+            q += float2(c, d) * (0.18 + low*0.13);
 
-            // Beat displacement bends the same liquid field instead of zooming the whole image.
+            // Directional beat warp bends the fluid instead of scaling the entire image.
             float phase = t*0.20;
             float2 beatWarp = float2(
-                sin(q.y*2.7 + phase) + 0.55*sin((q.x+q.y)*4.4 - phase*0.7),
-                cos(q.x*2.5 - phase*0.9) + 0.55*cos((q.x-q.y)*4.1 + phase*0.6)
+                sin(q.y*2.55 + phase) + 0.62*sin((q.x+q.y)*4.15 - phase*0.72),
+                cos(q.x*2.35 - phase*0.90) + 0.62*cos((q.x-q.y)*3.95 + phase*0.64)
             );
-            q += beatWarp * (b*0.105 + low*0.060);
+            q += beatWarp * (b*0.165 + low*0.085);
 
-            q.x += (0.055 + b*0.040)*sin(q.y*3.0 + t*0.10) + 0.028*sin((q.x+q.y)*5.0-t*0.06);
-            q.y += (0.050 + b*0.036)*cos(q.x*2.7 - t*0.09) + 0.026*cos((q.x-q.y)*4.6+t*0.055);
+            // Local pulse: bass pushes nearby liquid outward, kick adds a short swirl.
+            float r = length(q) + 0.0001;
+            float2 radial = q / r;
+            float pulseBand = 0.5 + 0.5*sin(r*7.0 - t*0.34);
+            q += radial * pulseBand * (low*0.060 + b*0.085);
+            float2 tangent = float2(-radial.y, radial.x);
+            q += tangent * sin(r*5.4 + t*0.24) * b*0.070;
+
+            q.x += (0.055 + b*0.060)*sin(q.y*3.0 + t*0.10) + 0.030*sin((q.x+q.y)*5.0-t*0.06);
+            q.y += (0.050 + b*0.055)*cos(q.x*2.7 - t*0.09) + 0.028*cos((q.x-q.y)*4.6+t*0.055);
             return q;
         }
 
@@ -75,28 +84,28 @@ class FlowRenderer {
             float2 uv = (fragCoord - 0.5*resolution) / min(resolution.x, resolution.y);
             uv /= max(scale, 0.42);
 
-            float t = time * (0.88 + beat * 0.10);
+            float t = time * (0.88 + beat * 0.06);
             float2 p = liquidWarp(uv, t, beat, bass);
 
             float n1 = field(p*0.94, t+2.0);
             float n2 = field(rot(p, 0.92)*1.03 + float2(0.24,-0.11), -t*0.78+7.0);
             float n3 = field(rot(p,-0.61)*0.89 + float2(-0.18,0.27), t*0.64+13.0);
 
-            float ribbon1 = 0.5 + 0.5*sin(p.x*1.45 + p.y*0.72 + n1*(1.55+beat*0.34) + t*0.075);
-            float ribbon2 = 0.5 + 0.5*sin(-p.x*0.78 + p.y*1.62 + n2*(1.42+bass*0.28) - t*0.060 + 1.9);
-            float ribbon3 = 0.5 + 0.5*sin(p.x*1.05 - p.y*1.12 + n3*(1.30+beat*0.25) + t*0.052 + 4.1);
+            float ribbon1 = 0.5 + 0.5*sin(p.x*1.45 + p.y*0.72 + n1*(1.55+beat*0.48) + t*0.075);
+            float ribbon2 = 0.5 + 0.5*sin(-p.x*0.78 + p.y*1.62 + n2*(1.42+bass*0.38) - t*0.060 + 1.9);
+            float ribbon3 = 0.5 + 0.5*sin(p.x*1.05 - p.y*1.12 + n3*(1.30+beat*0.36) + t*0.052 + 4.1);
 
-            float wa = smoothstep(0.18, 0.90, ribbon1);
-            float wb = smoothstep(0.14, 0.92, ribbon2);
-            float wc = smoothstep(0.20, 0.88, ribbon3);
+            float wa = smoothstep(0.16, 0.91, ribbon1);
+            float wb = smoothstep(0.13, 0.93, ribbon2);
+            float wc = smoothstep(0.18, 0.90, ribbon3);
 
             half3 col = mix(colorA.rgb, colorB.rgb, half(wb));
-            col = mix(col, colorC.rgb, half(wc*0.80));
-            col = mix(col, colorA.rgb, half(wa*0.46));
+            col = mix(col, colorC.rgb, half(wc*0.82));
+            col = mix(col, colorA.rgb, half(wa*0.48));
 
             float gloss = 0.5 + 0.5*sin((p.x*0.60+p.y*0.82)*3.14159 + n1*0.82 - t*0.045);
             float depth = 0.82 + 0.18*gloss + 0.07*(n2+n3);
-            depth *= 1.0 + beat * 0.10;
+            depth *= 1.0 + beat * 0.055 + bass * 0.025;
 
             if (graphicsMode > 0.5) {
                 float ribs = sin((uv.x + 0.035*sin(t*0.07))*34.0);
@@ -159,22 +168,22 @@ class FlowRenderer {
         canvas.drawColor(Color.rgb(3, 4, 9))
         val beat = (BeatAnalyzer.level * beatStrength).coerceIn(0f, 1f)
         val bass = (BeatAnalyzer.bass * beatStrength).coerceIn(0f, 1f)
-        val t = integratedTime() * (0.88f + beat * 0.10f)
+        val t = integratedTime() * (0.88f + beat * 0.06f)
         val base = maxOf(w, h) * scale
 
         for (i in 0 until 10) {
             val raw = colors[i % colors.size]
-            val boost = 1f + beat * 0.10f
+            val boost = 1f + beat * 0.06f
             val rr = (Color.red(raw) * brightness * boost).toInt().coerceIn(0, 255)
             val gg = (Color.green(raw) * brightness * boost).toInt().coerceIn(0, 255)
             val bb = (Color.blue(raw) * brightness * boost).toInt().coerceIn(0, 255)
             val phase = i * 0.71f
             val p = t * (0.070f + i * 0.0035f) + phase
             val q = t * (0.052f + i * 0.0027f) + phase * 1.37f
-            val wobble = beat * (0.08f + 0.02f * (i % 3))
-            val x = w * (0.50f + (0.48f + wobble) * sin((p + bass*0.35f).toDouble()).toFloat())
-            val y = h * (0.50f + (0.44f + wobble*0.8f) * cos((q - beat*0.30f).toDouble()).toFloat())
-            val radius = base * (0.92f + 0.18f * sin((p * 0.7f + q).toDouble()).toFloat() + beat*0.08f)
+            val wobble = beat * (0.14f + 0.028f * (i % 3)) + bass * 0.035f
+            val x = w * (0.50f + (0.48f + wobble) * sin((p + bass*0.48f).toDouble()).toFloat())
+            val y = h * (0.50f + (0.44f + wobble*0.8f) * cos((q - beat*0.46f).toDouble()).toFloat())
+            val radius = base * (0.92f + 0.18f * sin((p * 0.7f + q).toDouble()).toFloat() + beat*0.14f)
             paint.shader = RadialGradient(
                 x, y, radius,
                 Color.argb(if (i < 4) 150 else 92, rr, gg, bb),
