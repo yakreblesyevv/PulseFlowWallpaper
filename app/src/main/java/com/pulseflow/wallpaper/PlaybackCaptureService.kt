@@ -8,7 +8,6 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
-import androidx.annotation.RequiresApi
 import kotlin.concurrent.thread
 
 class PlaybackCaptureService : Service() {
@@ -56,8 +55,8 @@ class PlaybackCaptureService : Service() {
         return START_NOT_STICKY
     }
 
-    @RequiresApi(29)
     private fun startCapture(resultCode: Int, data: Intent) {
+        if (Build.VERSION.SDK_INT < 29) return
         stopCapture()
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val mp = manager.getMediaProjection(resultCode, data)
