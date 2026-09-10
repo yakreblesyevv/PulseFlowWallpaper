@@ -11,7 +11,6 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -20,16 +19,13 @@ class MainActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private var liveBeatsSwitch: Switch? = null
-    private var albumColorsSwitch: Switch? = null
     private var suppressLiveBeatsCallback = false
-    private var suppressAlbumCallback = false
     private var pendingLiveBeatsEnable = false
     private val audioPermissionRequest = 1301
     private val uiHandler = Handler(Looper.getMainLooper())
     private var beatStatusText: TextView? = null
     private var bassBar: ProgressBar? = null
     private var beatBar: ProgressBar? = null
-    private var albumStatusText: TextView? = null
 
     private val diagnosticsTick = object : Runnable {
         override fun run() {
@@ -38,11 +34,6 @@ class MainActivity : Activity() {
             beatStatusText?.text = "Sinyal: $status   •   BASS %.2f   •   BEAT %.2f".format(BeatAnalyzer.bass, BeatAnalyzer.level)
             bassBar?.progress = (BeatAnalyzer.bass * 1000f).toInt().coerceIn(0, 1000)
             beatBar?.progress = (BeatAnalyzer.level * 1000f).toInt().coerceIn(0, 1000)
-            albumStatusText?.text = if (hasNotificationAccess()) {
-                "Bildirim erişimi: AKTİF • Şarkı değişince albüm kapağından renk üretilecek."
-            } else {
-                "Bildirim erişimi: KAPALI • Otomatik albüm rengi için erişim gerekli."
-            }
             uiHandler.postDelayed(this, 120L)
         }
     }
@@ -150,13 +141,13 @@ class MainActivity : Activity() {
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
         root.addView(text("Fluid Wallpaper Lab", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-        root.addView(text("v0.17 • Reactive Liquid + Album Colors", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
+        root.addView(text("v0.19 • Calibrated Reactive Liquid", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
         root.addView(previewCard, LinearLayout.LayoutParams(-1, dp(235)).apply {
             topMargin = dp(12)
             bottomMargin = dp(8)
         })
 
-        section("COLOR PALETTES", "Manuel palet seçersen Auto Album Colors kapanır.")
+        section("COLOR PALETTES", "Palete dokunduğunda önizleme anında güncellenir.")
         val paletteGrid = GridLayout(this).apply { columnCount = 2 }
         fun rebuildPalettes() {
             paletteGrid.removeAllViews()
@@ -172,10 +163,6 @@ class MainActivity : Activity() {
                     }
                     isClickable = true
                     setOnClickListener {
-                        FlowSettings.saveAlbumColors(this@MainActivity, false)
-                        suppressAlbumCallback = true
-                        albumColorsSwitch?.isChecked = false
-                        suppressAlbumCallback = false
                         PaletteStore.savePreset(this@MainActivity, index)
                         rebuildPalettes()
                         reloadPreviews()
@@ -205,35 +192,6 @@ class MainActivity : Activity() {
         }
         rebuildPalettes()
         root.addView(paletteGrid)
-
-        section("AUTO ALBUM COLORS", "Şarkının albüm kapağından sınırsız dinamik renk üretir.")
-        val albumSwitch = Switch(this).apply {
-            text = "Auto Album Colors"
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            isChecked = FlowSettings.loadAlbumColors(this@MainActivity)
-            setPadding(dp(14), dp(6), dp(14), dp(6))
-            background = cardBackground(40, 38)
-        }
-        albumColorsSwitch = albumSwitch
-        albumSwitch.setOnCheckedChangeListener { button, enabled ->
-            if (suppressAlbumCallback) return@setOnCheckedChangeListener
-            if (enabled && !hasNotificationAccess()) {
-                FlowSettings.saveAlbumColors(this@MainActivity, true)
-                Toast.makeText(this, "Albüm kapağını okuyabilmek için PulseFlow bildirim erişimini aç.", Toast.LENGTH_LONG).show()
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-            } else {
-                FlowSettings.saveAlbumColors(this@MainActivity, enabled)
-            }
-            reloadPreviews()
-        }
-        root.addView(albumSwitch, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
-        albumStatusText = text("Bildirim erişimi kontrol ediliyor…", 11f, Color.LTGRAY)
-        root.addView(albumStatusText)
-        root.addView(Button(this).apply {
-            text = "BİLDİRİM ERİŞİMİNİ AÇ"
-            setOnClickListener { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
 
         section("FLUID SETTINGS", "Akışın hızını ve ölçeğini canlı önizlemeden ayarla.")
         val speedWrap = LinearLayout(this).apply {
@@ -333,7 +291,6 @@ class MainActivity : Activity() {
                 FlowSettings.saveGraphicsMode(this@MainActivity, "blur")
                 FlowSettings.saveLiveBeats(this@MainActivity, false)
                 FlowSettings.saveBeatStrength(this@MainActivity, 0.55f)
-                FlowSettings.saveAlbumColors(this@MainActivity, false)
                 BeatAnalyzer.stop()
                 PaletteStore.savePreset(this@MainActivity, 7)
                 recreate()
@@ -356,11 +313,6 @@ class MainActivity : Activity() {
             BeatAnalyzer.start(this)
         }
         uiHandler.post(diagnosticsTick)
-    }
-
-    private fun hasNotificationAccess(): Boolean {
-        val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: return false
-        return enabled.contains(packageName)
     }
 
     private fun enableLiveBeats(button: CompoundButton) {
@@ -390,11 +342,6 @@ class MainActivity : Activity() {
             suppressLiveBeatsCallback = false
             Toast.makeText(this, "Bu cihazda ses spektrumu başlatılamadı.", Toast.LENGTH_LONG).show()
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        albumStatusText?.text = if (hasNotificationAccess()) "Bildirim erişimi: AKTİF" else "Bildirim erişimi: KAPALI"
     }
 
     override fun onDestroy() {
