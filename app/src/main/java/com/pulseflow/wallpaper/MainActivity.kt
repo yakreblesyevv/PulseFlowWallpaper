@@ -1,13 +1,13 @@
 package com.pulseflow.wallpaper
 
 import android.Manifest
-import android.app.*
-import android.content.*
+import android.app.Activity
+import android.app.WallpaperManager
+import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
-import android.media.projection.MediaProjectionManager
-import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -20,7 +20,6 @@ class MainActivity : Activity() {
     private var suppressLiveBeatsCallback = false
     private var pendingLiveBeatsEnable = false
     private val audioPermissionRequest = 1301
-    private val playbackCaptureRequest = 1402
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,7 +64,7 @@ class MainActivity : Activity() {
         }
         val livePreview = FlowPreviewView(this)
         previewCard.addView(livePreview, FrameLayout.LayoutParams(-1, -1))
-        previewCard.addView(text("CANLI ÖNİZLEME", 11f, Color.WHITE).apply {
+        previewCard.addView(text("CANLI ÖNİZLEME", 11f).apply {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 cornerRadius = dp(14).toFloat()
@@ -99,20 +98,19 @@ class MainActivity : Activity() {
                         onChange(v)
                         reloadPreviews()
                     }
-                    override fun onStartTrackingTouch(s: SeekBar?) {}
-                    override fun onStopTrackingTouch(s: SeekBar?) {}
+                    override fun onStartTrackingTouch(s: SeekBar?) = Unit
+                    override fun onStopTrackingTouch(s: SeekBar?) = Unit
                 })
             })
             root.addView(wrap, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         }
 
-        fun toggle(title: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit): Switch {
+        fun toggle(title: String, checked: Boolean, onChange: (Boolean) -> Unit): Switch {
             val sw = Switch(this).apply {
                 text = title
                 textSize = 14f
                 setTextColor(Color.WHITE)
                 isChecked = checked
-                isEnabled = enabled
                 setPadding(dp(14), dp(6), dp(14), dp(6))
                 background = cardBackground(40, 38)
                 setOnCheckedChangeListener { _, value ->
@@ -126,18 +124,14 @@ class MainActivity : Activity() {
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
         root.addView(text("Fluid Wallpaper Lab", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-        root.addView(text("v0.15 • Safer Reactive Build", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
+        root.addView(text("v0.16 • Spectrum Live Beats", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
         root.addView(previewCard, LinearLayout.LayoutParams(-1, dp(235)).apply {
             topMargin = dp(12)
             bottomMargin = dp(8)
         })
 
         section("COLOR PALETTES", "Palete dokunduğunda önizleme anında güncellenir.")
-        val paletteGrid = GridLayout(this).apply {
-            columnCount = 2
-            useDefaultMargins = false
-        }
-
+        val paletteGrid = GridLayout(this).apply { columnCount = 2 }
         fun rebuildPalettes() {
             paletteGrid.removeAllViews()
             val selected = PaletteStore.selectedName(this)
@@ -148,10 +142,7 @@ class MainActivity : Activity() {
                     background = GradientDrawable().apply {
                         cornerRadius = dp(16).toFloat()
                         setColor(Color.argb(if (preset.name == selected) 90 else 46, 12, 12, 20))
-                        setStroke(
-                            dp(if (preset.name == selected) 2 else 1),
-                            if (preset.name == selected) Color.rgb(190, 160, 255) else Color.argb(55, 220, 210, 255)
-                        )
+                        setStroke(dp(if (preset.name == selected) 2 else 1), if (preset.name == selected) Color.rgb(190,160,255) else Color.argb(55,220,210,255))
                     }
                     isClickable = true
                     setOnClickListener {
@@ -160,28 +151,20 @@ class MainActivity : Activity() {
                         reloadPreviews()
                     }
                 }
-                val swatches = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER
-                }
+                val swatches = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
                 preset.colors.forEach { c ->
                     val dot = View(this).apply {
                         background = GradientDrawable().apply {
                             shape = GradientDrawable.OVAL
                             setColor(c)
-                            setStroke(dp(1), Color.argb(90, 255, 255, 255))
+                            setStroke(dp(1), Color.argb(90,255,255,255))
                         }
                     }
-                    swatches.addView(dot, LinearLayout.LayoutParams(dp(30), dp(30)).apply {
-                        marginStart = dp(3)
-                        marginEnd = dp(3)
-                    })
+                    swatches.addView(dot, LinearLayout.LayoutParams(dp(30), dp(30)).apply { marginStart = dp(3); marginEnd = dp(3) })
                 }
                 card.addView(swatches)
                 card.addView(text(preset.name, 12f, Color.WHITE, 8).apply { gravity = Gravity.CENTER })
-                if (preset.name == selected) {
-                    card.addView(text("SEÇİLİ", 9f, Color.rgb(201, 184, 255)).apply { gravity = Gravity.CENTER })
-                }
+                if (preset.name == selected) card.addView(text("SEÇİLİ", 9f, Color.rgb(201,184,255)).apply { gravity = Gravity.CENTER })
                 paletteGrid.addView(card, GridLayout.LayoutParams().apply {
                     width = 0
                     height = GridLayout.LayoutParams.WRAP_CONTENT
@@ -196,21 +179,13 @@ class MainActivity : Activity() {
         section("FLUID SETTINGS", "Akışın hızını ve ölçeğini canlı önizlemeden ayarla.")
         val speedWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = cardBackground(44, 45)
+            background = cardBackground(44,45)
             setPadding(dp(14), dp(8), dp(14), dp(8))
         }
-        val rangeLabel = text(
-            "Speed  %.2f – %.2f".format(FlowSettings.loadSpeedMin(this), FlowSettings.loadSpeedMax(this)),
-            14f
-        )
+        val rangeLabel = text("Speed  %.2f – %.2f".format(FlowSettings.loadSpeedMin(this), FlowSettings.loadSpeedMax(this)), 14f)
         speedWrap.addView(rangeLabel)
         speedWrap.addView(RangeSliderView(this).apply {
-            configure(
-                0.05f,
-                4.5f,
-                FlowSettings.loadSpeedMin(this@MainActivity),
-                FlowSettings.loadSpeedMax(this@MainActivity)
-            )
+            configure(0.05f, 4.5f, FlowSettings.loadSpeedMin(this@MainActivity), FlowSettings.loadSpeedMax(this@MainActivity))
             setOnRangeChangedListener { lo, hi ->
                 rangeLabel.text = "Speed  %.2f – %.2f".format(lo, hi)
                 FlowSettings.saveSpeedRange(this@MainActivity, lo, hi)
@@ -225,24 +200,16 @@ class MainActivity : Activity() {
         slider("Blur / Softness", 0.25f, 1f, FlowSettings.loadBlur(this)) { FlowSettings.saveBlur(this, it) }
         val graphicsCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = cardBackground(42, 42)
+            background = cardBackground(42,42)
             setPadding(dp(14), dp(8), dp(14), dp(8))
         }
         val graphics = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        val blurRadio = RadioButton(this).apply {
-            text = "Blur"
-            setTextColor(Color.WHITE)
-            id = View.generateViewId()
-        }
-        val flutedRadio = RadioButton(this).apply {
-            text = "Fluted Glass"
-            setTextColor(Color.WHITE)
-            id = View.generateViewId()
-        }
+        val blurRadio = RadioButton(this).apply { text = "Blur"; setTextColor(Color.WHITE); id = View.generateViewId() }
+        val flutedRadio = RadioButton(this).apply { text = "Fluted Glass"; setTextColor(Color.WHITE); id = View.generateViewId() }
         graphics.addView(blurRadio)
         graphics.addView(flutedRadio)
         graphicsCard.addView(graphics)
-        root.addView(graphicsCard, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        root.addView(graphicsCard, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(8) })
         if (FlowSettings.loadGraphicsMode(this) == "fluted") flutedRadio.isChecked = true else blurRadio.isChecked = true
         graphics.setOnCheckedChangeListener { _, id ->
             FlowSettings.saveGraphicsMode(this, if (id == flutedRadio.id) "fluted" else "blur")
@@ -251,56 +218,35 @@ class MainActivity : Activity() {
 
         section("DISPLAY")
         slider("Brightness", 0.35f, 1.35f, FlowSettings.loadBrightness(this)) { FlowSettings.saveBrightness(this, it) }
-        toggle("Adaptive Launcher Color Scheme", FlowSettings.loadAdaptiveColors(this)) {
-            FlowSettings.saveAdaptiveColors(this, it)
-        }
-        toggle("Performance Mode", FlowSettings.loadPerformanceMode(this)) {
-            FlowSettings.savePerformanceMode(this, it)
-        }
+        toggle("Adaptive Launcher Color Scheme", FlowSettings.loadAdaptiveColors(this)) { FlowSettings.saveAdaptiveColors(this, it) }
+        toggle("Performance Mode", FlowSettings.loadPerformanceMode(this)) { FlowSettings.savePerformanceMode(this, it) }
 
-        section("LIVE BEATS", "Gerçek medya sesine göre akış tepki verir.")
+        section("LIVE BEATS", "Ekran paylaşımı yok. Müzik spektrumundaki bas frekansları akışı doğrudan hareket ettirir.")
         val liveBeats = Switch(this).apply {
             text = "Live Beats"
             textSize = 14f
             setTextColor(Color.WHITE)
             isChecked = FlowSettings.loadLiveBeats(this@MainActivity)
             setPadding(dp(14), dp(6), dp(14), dp(6))
-            background = cardBackground(40, 38)
+            background = cardBackground(40,38)
         }
         liveBeatsSwitch = liveBeats
         liveBeats.setOnCheckedChangeListener { button, enabled ->
             if (suppressLiveBeatsCallback) return@setOnCheckedChangeListener
-            if (enabled) {
-                suppressLiveBeatsCallback = true
-                button.isChecked = false
-                suppressLiveBeatsCallback = false
-                beginLiveBeatsPermissionFlow()
-            } else {
+            if (enabled) enableLiveBeats(button) else {
                 FlowSettings.saveLiveBeats(this@MainActivity, false)
-                stopPlaybackCapture()
+                BeatAnalyzer.stop()
                 reloadPreviews()
             }
         }
-        root.addView(liveBeats, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-        root.addView(text(
-            "İlk açılışta Android ses izni ve medya yakalama onayı ister. Mikrofon kaydı yapılmaz; izin playback capture API'sinin teknik gereksinimidir.",
-            11f,
-            Color.LTGRAY
-        ))
-        slider("Strength", 0f, 1f, FlowSettings.loadBeatStrength(this)) {
-            FlowSettings.saveBeatStrength(this, it)
-        }
+        root.addView(liveBeats, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(8) })
+        root.addView(text("İlk kullanımda yalnızca ses izni istenir. Ekran paylaşımı veya ekran kaydı başlatılmaz.", 11f, Color.LTGRAY))
+        slider("Strength", 0f, 1f, FlowSettings.loadBeatStrength(this)) { FlowSettings.saveBeatStrength(this, it) }
 
         section("PERSISTENCE")
-        toggle("Preserve after phone reboot", FlowSettings.loadPreserveReboot(this)) {
-            FlowSettings.savePreserveReboot(this, it)
-        }
-        toggle("Preserve after music pause", FlowSettings.loadPreservePause(this)) {
-            FlowSettings.savePreservePause(this, it)
-        }
-        toggle("Debug View", FlowSettings.loadDebugView(this)) {
-            FlowSettings.saveDebugView(this, it)
-        }
+        toggle("Preserve after phone reboot", FlowSettings.loadPreserveReboot(this)) { FlowSettings.savePreserveReboot(this, it) }
+        toggle("Preserve after music pause", FlowSettings.loadPreservePause(this)) { FlowSettings.savePreservePause(this, it) }
+        toggle("Debug View", FlowSettings.loadDebugView(this)) { FlowSettings.saveDebugView(this, it) }
 
         root.addView(Button(this).apply {
             text = "VARSAYILAN AYARLARA DÖN"
@@ -312,98 +258,69 @@ class MainActivity : Activity() {
                 FlowSettings.saveGraphicsMode(this@MainActivity, "blur")
                 FlowSettings.saveLiveBeats(this@MainActivity, false)
                 FlowSettings.saveBeatStrength(this@MainActivity, 0.55f)
-                stopPlaybackCapture()
+                BeatAnalyzer.stop()
                 PaletteStore.savePreset(this@MainActivity, 7)
                 recreate()
             }
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+        }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(14) })
 
         root.addView(Button(this).apply {
             text = "CANLI DUVAR KAĞIDI OLARAK AYARLA"
             setOnClickListener {
-                startActivity(
-                    Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(
-                        WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                        ComponentName(this@MainActivity, PulseWallpaperService::class.java)
-                    )
-                )
+                startActivity(Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(
+                    WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                    ComponentName(this@MainActivity, PulseWallpaperService::class.java)
+                ))
             }
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
 
         setContentView(frame)
+
+        if (FlowSettings.loadLiveBeats(this) && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            BeatAnalyzer.start(this)
+        }
     }
 
-    private fun beginLiveBeatsPermissionFlow() {
-        if (Build.VERSION.SDK_INT < 29) {
-            Toast.makeText(this, "Live Beats için Android 10 veya üzeri gerekiyor.", Toast.LENGTH_LONG).show()
-            return
-        }
+    private fun enableLiveBeats(button: Switch) {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            suppressLiveBeatsCallback = true
+            button.isChecked = false
+            suppressLiveBeatsCallback = false
             pendingLiveBeatsEnable = true
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), audioPermissionRequest)
             return
         }
-        requestPlaybackCapture()
+        activateLiveBeats()
     }
 
-    private fun requestPlaybackCapture() {
-        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        startActivityForResult(manager.createScreenCaptureIntent(), playbackCaptureRequest)
-    }
-
-    private fun startPlaybackCapture(resultCode: Int, data: Intent) {
-        FlowSettings.saveLiveBeats(this, true)
-        suppressLiveBeatsCallback = true
-        liveBeatsSwitch?.isChecked = true
-        suppressLiveBeatsCallback = false
-
-        val serviceIntent = Intent(this, PlaybackCaptureService::class.java).apply {
-            action = PlaybackCaptureService.ACTION_START
-            putExtra(PlaybackCaptureService.EXTRA_RESULT_CODE, resultCode)
-            putExtra(PlaybackCaptureService.EXTRA_DATA, data)
+    private fun activateLiveBeats() {
+        val ok = BeatAnalyzer.start(this)
+        if (ok) {
+            FlowSettings.saveLiveBeats(this, true)
+            suppressLiveBeatsCallback = true
+            liveBeatsSwitch?.isChecked = true
+            suppressLiveBeatsCallback = false
+            Toast.makeText(this, "Live Beats aktif.", Toast.LENGTH_SHORT).show()
+        } else {
+            FlowSettings.saveLiveBeats(this, false)
+            suppressLiveBeatsCallback = true
+            liveBeatsSwitch?.isChecked = false
+            suppressLiveBeatsCallback = false
+            Toast.makeText(this, "Bu cihazda ses spektrumu başlatılamadı.", Toast.LENGTH_LONG).show()
         }
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(serviceIntent) else startService(serviceIntent)
-        Toast.makeText(this, "Live Beats aktif.", Toast.LENGTH_SHORT).show()
     }
 
-    private fun stopPlaybackCapture() {
-        startService(Intent(this, PlaybackCaptureService::class.java).apply {
-            action = PlaybackCaptureService.ACTION_STOP
-        })
-        BeatAnalyzer.stop()
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == audioPermissionRequest) {
             val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
             if (granted && pendingLiveBeatsEnable) {
                 pendingLiveBeatsEnable = false
-                requestPlaybackCapture()
+                activateLiveBeats()
             } else {
                 pendingLiveBeatsEnable = false
                 FlowSettings.saveLiveBeats(this, false)
                 Toast.makeText(this, "Live Beats için ses izni gerekiyor.", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    @Deprecated("Deprecated in Android")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == playbackCaptureRequest) {
-            if (resultCode == RESULT_OK && data != null) {
-                startPlaybackCapture(resultCode, data)
-            } else {
-                FlowSettings.saveLiveBeats(this, false)
-                suppressLiveBeatsCallback = true
-                liveBeatsSwitch?.isChecked = false
-                suppressLiveBeatsCallback = false
-                Toast.makeText(this, "Medya yakalama izni verilmedi.", Toast.LENGTH_SHORT).show()
             }
         }
     }
