@@ -34,7 +34,6 @@ class PulseWallpaperService : WallpaperService() {
             renderer.graphicsMode = FlowSettings.loadGraphicsMode(ctx)
             renderer.beatStrength = FlowSettings.loadBeatStrength(ctx)
             frameDelay = if (FlowSettings.loadPerformanceMode(ctx)) 33L else 16L
-            if (visible && FlowSettings.loadLiveBeats(ctx)) BeatAnalyzer.start(ctx) else BeatAnalyzer.stop()
         }
 
         override fun onCreate(holder: SurfaceHolder?) {
@@ -54,8 +53,6 @@ class PulseWallpaperService : WallpaperService() {
             if (v) {
                 reload()
                 handler.post(tick)
-            } else {
-                BeatAnalyzer.stop()
             }
         }
 
@@ -81,7 +78,6 @@ class PulseWallpaperService : WallpaperService() {
         override fun onDestroy() {
             visible = false
             handler.removeCallbacks(tick)
-            BeatAnalyzer.stop()
             try { unregisterReceiver(receiver) } catch (_: Throwable) {}
             super.onDestroy()
         }
