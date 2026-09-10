@@ -6,15 +6,22 @@ import android.content.*
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.*
 
 class MainActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
     private var liveBeatsSwitch: Switch? = null
+    private var suppressLiveBeatsCallback = false
+    private var pendingLiveBeatsEnable = false
     private val audioPermissionRequest = 1301
+    private val playbackCaptureRequest = 1402
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -121,13 +128,13 @@ class MainActivity : Activity() {
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
         root.addView(text("Fluid Wallpaper Lab", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-        root.addView(text("v0.13 • Live Beats", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
+        root.addView(text("v0.14 • Reactive Album Flow", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
         root.addView(previewCard, LinearLayout.LayoutParams(-1, dp(235)).apply {
             topMargin = dp(12)
             bottomMargin = dp(8)
         })
 
-        section("COLOR PALETTES", "Bir palete dokunduğunda önizleme anında güncellenir.")
+        section("COLOR PALETTES", "Manuel palet seçebilir veya albüm kapağından otomatik renk üretebilirsin.")
         val paletteGrid = GridLayout(this).apply {
             columnCount = 2
             useDefaultMargins = false
@@ -146,6 +153,7 @@ class MainActivity : Activity() {
                     }
                     isClickable = true
                     setOnClickListener {
+                        FlowSettings.saveAlbumColors(this@MainActivity, false)
                         PaletteStore.savePreset(this@MainActivity, index)
                         rebuildPalettes()
                         reloadPreviews()
@@ -181,6 +189,20 @@ class MainActivity : Activity() {
         }
         rebuildPalettes()
         root.addView(paletteGrid)
+
+        section("DYNAMIC ALBUM COLORS", "Şarkı değiştiğinde albüm kapağının baskın renkleri akışa otomatik uygulanır.")
+        toggle("Album Art Colors", FlowSettings.loadAlbumColors(this)) { enabled ->
+            FlowSettings.saveAlbumColors(this, enabled)
+            if (enabled && !hasNotificationAccess()) {
+                Toast.makeText(this, "Albüm kapağını okuyabilmek için bildirim erişimini aç.", Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+        }
+        root.addView(Button(this).apply {
+            text = "ALBÜM RENGİ ERİŞİMİNİ AÇ"
+            setOnClickListener { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        root.addView(text("Manuel bir palete dokunursan otomatik albüm rengi kapanır.", 11f, Color.LTGRAY))
 
         section("FLUID SETTINGS", "Akışın hızını ve ölçeğini canlı önizlemeden ayarla.")
         val speedWrap = LinearLayout(this).apply {
@@ -227,7 +249,7 @@ class MainActivity : Activity() {
         toggle("Adaptive Launcher Color Scheme", FlowSettings.loadAdaptiveColors(this)) { FlowSettings.saveAdaptiveColors(this, it) }
         toggle("Performance Mode", FlowSettings.loadPerformanceMode(this)) { FlowSettings.savePerformanceMode(this, it) }
 
-        section("LIVE BEATS", "Müzik çalarken akış gerçek ses verisine göre tepki verir.")
+        section("LIVE BEATS", "Müzik çalarken akış gerçek medya sesine göre tepki verir.")
         val liveBeats = Switch(this).apply {
             text = "Live Beats"
             textSize = 14f
@@ -238,17 +260,20 @@ class MainActivity : Activity() {
         }
         liveBeatsSwitch = liveBeats
         liveBeats.setOnCheckedChangeListener { button, enabled ->
-            if (enabled && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            if (suppressLiveBeatsCallback) return@setOnCheckedChangeListener
+            if (enabled) {
+                suppressLiveBeatsCallback = true
                 button.isChecked = false
-                requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), audioPermissionRequest)
+                suppressLiveBeatsCallback = false
+                beginLiveBeatsPermissionFlow()
             } else {
-                FlowSettings.saveLiveBeats(this@MainActivity, enabled)
-                if (enabled) BeatAnalyzer.start(this@MainActivity) else BeatAnalyzer.stop()
+                FlowSettings.saveLiveBeats(this@MainActivity, false)
+                stopPlaybackCapture()
                 reloadPreviews()
             }
         }
         root.addView(liveBeats, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-        root.addView(text("İlk açılışta yalnızca ses görselleştirmesi için mikrofon/ses izni ister.", 11f, Color.LTGRAY))
+        root.addView(text("Açarken Android bir kez ses yakalama onayı gösterecek. Aktifken küçük bir PulseFlow bildirimi görünür.", 11f, Color.LTGRAY))
         slider("Strength", 0f, 1f, FlowSettings.loadBeatStrength(this)) { FlowSettings.saveBeatStrength(this, it) }
 
         section("PERSISTENCE")
@@ -266,7 +291,8 @@ class MainActivity : Activity() {
                 FlowSettings.saveGraphicsMode(this@MainActivity, "blur")
                 FlowSettings.saveLiveBeats(this@MainActivity, false)
                 FlowSettings.saveBeatStrength(this@MainActivity, 0.55f)
-                BeatAnalyzer.stop()
+                FlowSettings.saveAlbumColors(this@MainActivity, false)
+                stopPlaybackCapture()
                 PaletteStore.savePreset(this@MainActivity, 7)
                 recreate()
             }
@@ -287,24 +313,80 @@ class MainActivity : Activity() {
         setContentView(frame)
     }
 
+    private fun beginLiveBeatsPermissionFlow() {
+        if (Build.VERSION.SDK_INT < 29) {
+            Toast.makeText(this, "Live Beats için Android 10 veya üzeri gerekiyor.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingLiveBeatsEnable = true
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), audioPermissionRequest)
+            return
+        }
+        requestPlaybackCapture()
+    }
+
+    private fun requestPlaybackCapture() {
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        startActivityForResult(manager.createScreenCaptureIntent(), playbackCaptureRequest)
+    }
+
+    private fun startPlaybackCapture(resultCode: Int, data: Intent) {
+        FlowSettings.saveLiveBeats(this, true)
+        suppressLiveBeatsCallback = true
+        liveBeatsSwitch?.isChecked = true
+        suppressLiveBeatsCallback = false
+
+        val serviceIntent = Intent(this, PlaybackCaptureService::class.java).apply {
+            action = PlaybackCaptureService.ACTION_START
+            putExtra(PlaybackCaptureService.EXTRA_RESULT_CODE, resultCode)
+            putExtra(PlaybackCaptureService.EXTRA_DATA, data)
+        }
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(serviceIntent) else startService(serviceIntent)
+        Toast.makeText(this, "Live Beats aktif.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopPlaybackCapture() {
+        startService(Intent(this, PlaybackCaptureService::class.java).apply {
+            action = PlaybackCaptureService.ACTION_STOP
+        })
+        BeatAnalyzer.stop()
+    }
+
+    private fun hasNotificationAccess(): Boolean {
+        val flat = ComponentName(this, MusicNotificationListener::class.java).flattenToString()
+        val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
+        return enabled.contains(flat)
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == audioPermissionRequest) {
             val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
-            if (granted) {
-                FlowSettings.saveLiveBeats(this, true)
-                liveBeatsSwitch?.isChecked = true
-                BeatAnalyzer.start(this)
+            if (granted && pendingLiveBeatsEnable) {
+                pendingLiveBeatsEnable = false
+                requestPlaybackCapture()
             } else {
+                pendingLiveBeatsEnable = false
                 FlowSettings.saveLiveBeats(this, false)
-                liveBeatsSwitch?.isChecked = false
                 Toast.makeText(this, "Live Beats için ses izni gerekiyor.", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    override fun onDestroy() {
-        if (!FlowSettings.loadLiveBeats(this)) BeatAnalyzer.stop()
-        super.onDestroy()
+    @Deprecated("Deprecated in Android")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == playbackCaptureRequest) {
+            if (resultCode == RESULT_OK && data != null) {
+                startPlaybackCapture(resultCode, data)
+            } else {
+                FlowSettings.saveLiveBeats(this, false)
+                suppressLiveBeatsCallback = true
+                liveBeatsSwitch?.isChecked = false
+                suppressLiveBeatsCallback = false
+                Toast.makeText(this, "Ses yakalama izni verilmedi.", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 }
