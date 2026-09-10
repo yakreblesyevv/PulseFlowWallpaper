@@ -20,9 +20,18 @@ jobs:
           gradle-version: '8.11.1'
       - name: Install Android SDK
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Build release APK
+      - name: Build unsigned release APK
         run: gradle :app:assembleRelease --stacktrace
+      - name: Download stable AOSP test signing key
+        run: |
+          curl -L -o /tmp/testkey.pk8 https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.pk8
+          curl -L -o /tmp/testkey.x509.pem https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.x509.pem
+      - name: Align and sign APK
+        run: |
+          $ANDROID_HOME/build-tools/35.0.0/zipalign -f 4 app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/release/app-release-aligned.apk
+          $ANDROID_HOME/build-tools/35.0.0/apksigner sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out app/build/outputs/apk/release/PulseFlow-v0.9.apk app/build/outputs/apk/release/app-release-aligned.apk
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose app/build/outputs/apk/release/PulseFlow-v0.9.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: PulseFlow-v0.8-settings-expansion-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          name: PulseFlow-v0.9-updateable-dev-apk
+          path: app/build/outputs/apk/release/PulseFlow-v0.9.apk
