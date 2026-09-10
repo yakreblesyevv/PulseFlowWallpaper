@@ -3,6 +3,7 @@ package com.pulseflow.wallpaper
 import android.app.*
 import android.content.*
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -19,7 +20,9 @@ class MainActivity : Activity() {
         frame.addView(backdrop, FrameLayout.LayoutParams(-1, -1))
 
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(Color.argb(210, 7, 8, 14))
+            // Daha şeffaf ayar katmanı: hareket arkada da rahatça görülsün.
+            setBackgroundColor(Color.argb(112, 7, 8, 14))
+            isFillViewport = true
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -41,6 +44,30 @@ class MainActivity : Activity() {
             root.addView(text(title, 13f, Color.rgb(188, 166, 255), 18))
         }
 
+        // Ayrı canlı önizleme kartı: slider sürüklenirken anında güncellenir.
+        val previewCard = FrameLayout(this).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = dp(20).toFloat()
+                setColor(Color.argb(52, 6, 7, 12))
+                setStroke(dp(1), Color.argb(100, 210, 196, 255))
+            }
+            clipToOutline = true
+        }
+        val livePreview = FlowPreviewView(this)
+        previewCard.addView(livePreview, FrameLayout.LayoutParams(-1, -1))
+        previewCard.addView(text("CANLI ÖNİZLEME", 11f, Color.WHITE).apply {
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.argb(90, 0, 0, 0))
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+        }, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+            topMargin = dp(10)
+        })
+
+        fun reloadPreviews() {
+            backdrop.reload()
+            livePreview.reload()
+        }
+
         fun slider(title: String, min: Float, max: Float, current: Float, onChange: (Float) -> Unit) {
             val label = text("$title  %.2f".format(current), 15f, Color.WHITE, 4)
             root.addView(label)
@@ -52,7 +79,7 @@ class MainActivity : Activity() {
                         val v = min + (p / 1000f) * (max - min)
                         label.text = "$title  %.2f".format(v)
                         onChange(v)
-                        backdrop.reload()
+                        reloadPreviews()
                     }
                     override fun onStartTrackingTouch(s: SeekBar?) {}
                     override fun onStopTrackingTouch(s: SeekBar?) {}
@@ -70,7 +97,7 @@ class MainActivity : Activity() {
                 setPadding(0, dp(4), 0, dp(4))
                 setOnCheckedChangeListener { _, value ->
                     onChange(value)
-                    backdrop.reload()
+                    reloadPreviews()
                 }
                 root.addView(this)
             }
@@ -78,7 +105,11 @@ class MainActivity : Activity() {
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
         root.addView(text("Fluid Wallpaper Lab", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-        root.addView(text("LIVE FLUID PREVIEW", 11f, Color.rgb(210, 210, 220), 6).apply { gravity = Gravity.CENTER })
+        root.addView(text("Hızı değiştirirken sonucu aşağıdaki kartta anında izle.", 11f, Color.rgb(220, 220, 228), 6).apply { gravity = Gravity.CENTER })
+        root.addView(previewCard, LinearLayout.LayoutParams(-1, dp(230)).apply {
+            topMargin = dp(12)
+            bottomMargin = dp(10)
+        })
 
         section("FLUID SETTINGS")
         val rangeLabel = text(
@@ -91,10 +122,10 @@ class MainActivity : Activity() {
             setOnRangeChangedListener { lo, hi ->
                 rangeLabel.text = "Speed  %.2f – %.2f".format(lo, hi)
                 FlowSettings.saveSpeedRange(this@MainActivity, lo, hi)
-                backdrop.reload()
+                reloadPreviews()
             }
         })
-        root.addView(text("Daha yüksek değerlerde akış hareketi belirgin şekilde hızlanır.", 12f, Color.LTGRAY))
+        root.addView(text("Sürgüyü oynatırken üstteki önizleme gerçek zamanlı hızlanır veya yavaşlar.", 12f, Color.LTGRAY))
         slider("Fluid Scale", 0.65f, 1.65f, FlowSettings.loadScale(this)) { FlowSettings.saveScale(this, it) }
 
         section("GRAPHICS SETTINGS")
@@ -108,7 +139,7 @@ class MainActivity : Activity() {
         if (FlowSettings.loadGraphicsMode(this) == "fluted") flutedRadio.isChecked = true else blurRadio.isChecked = true
         graphics.setOnCheckedChangeListener { _, id ->
             FlowSettings.saveGraphicsMode(this, if (id == flutedRadio.id) "fluted" else "blur")
-            backdrop.reload()
+            reloadPreviews()
         }
 
         section("LIVE BEATS")
@@ -128,7 +159,7 @@ class MainActivity : Activity() {
                     .setItems(names) { _, which ->
                         PaletteStore.savePreset(this@MainActivity, which)
                         text = "DEFAULT PALETTE: ${PaletteStore.presets[which].name.uppercase()}"
-                        backdrop.reload()
+                        reloadPreviews()
                     }
                     .show()
             }
