@@ -17,6 +17,7 @@ class FlowRenderer {
     var brightness = 1.0f
     var blur = 0.72f
     var graphicsMode = "blur"
+    var beatStrength = 0.55f
     var colors = intArrayOf(Color.rgb(80,40,190), Color.rgb(15,125,210), Color.rgb(220,45,130))
 
     private val shaderCode = """
@@ -26,6 +27,7 @@ class FlowRenderer {
         uniform float brightness;
         uniform float softness;
         uniform float graphicsMode;
+        uniform float beat;
         layout(color) uniform half4 colorA;
         layout(color) uniform half4 colorB;
         layout(color) uniform half4 colorC;
@@ -47,18 +49,12 @@ class FlowRenderer {
 
         float2 liquidWarp(float2 p, float t) {
             float2 q = p;
-
-            // First broad current: slow, heavy, directional movement.
             float a = field(q*0.82 + float2(0.0, t*0.032), t);
             float b = field(rot(q, 1.5708)*0.88 + float2(t*0.026, 0.0), t+5.0);
             q += float2(a, b) * 0.29;
-
-            // Second pass bends the first current into long viscous folds.
             float c = field(q*1.24 + float2(t*0.018, -t*0.023), t+10.0);
             float d = field(rot(q, -0.73)*1.18 + float2(-t*0.020, t*0.015), t+16.0);
             q += float2(c, d) * 0.18;
-
-            // Tiny tertiary deformation prevents obvious repeating circles.
             q.x += 0.055*sin(q.y*3.0 + t*0.10) + 0.028*sin((q.x+q.y)*5.0-t*0.06);
             q.y += 0.050*cos(q.x*2.7 - t*0.09) + 0.026*cos((q.x-q.y)*4.6+t*0.055);
             return q;
@@ -66,13 +62,12 @@ class FlowRenderer {
 
         half4 main(float2 fragCoord) {
             float2 uv = (fragCoord - 0.5*resolution) / min(resolution.x, resolution.y);
-            uv /= max(scale, 0.42);
+            float pulseScale = 1.0 + beat * 0.10;
+            uv /= max(scale * pulseScale, 0.42);
 
-            // Keep the time responsive to the speed control while preserving viscosity.
-            float t = time * 0.88;
+            float t = time * (0.88 + beat * 0.18);
             float2 p = liquidWarp(uv, t);
 
-            // Large flowing bands replace the old independent moving blobs.
             float n1 = field(p*0.94, t+2.0);
             float n2 = field(rot(p, 0.92)*1.03 + float2(0.24,-0.11), -t*0.78+7.0);
             float n3 = field(rot(p,-0.61)*0.89 + float2(-0.18,0.27), t*0.64+13.0);
@@ -81,7 +76,6 @@ class FlowRenderer {
             float ribbon2 = 0.5 + 0.5*sin(-p.x*0.78 + p.y*1.62 + n2*1.42 - t*0.060 + 1.9);
             float ribbon3 = 0.5 + 0.5*sin(p.x*1.05 - p.y*1.12 + n3*1.30 + t*0.052 + 4.1);
 
-            // Soft thresholds keep gradients thick and oily instead of sharp/noisy.
             float wa = smoothstep(0.20, 0.88, ribbon1);
             float wb = smoothstep(0.16, 0.91, ribbon2);
             float wc = smoothstep(0.22, 0.86, ribbon3);
@@ -90,9 +84,9 @@ class FlowRenderer {
             col = mix(col, colorC.rgb, half(wc*0.78));
             col = mix(col, colorA.rgb, half(wa*0.48));
 
-            // Moving soft highlight gives the surface a wet / oil-like volume.
             float gloss = 0.5 + 0.5*sin((p.x*0.60+p.y*0.82)*3.14159 + n1*0.82 - t*0.045);
             float depth = 0.82 + 0.18*gloss + 0.07*(n2+n3);
+            depth *= 1.0 + beat * 0.22;
 
             if (graphicsMode > 0.5) {
                 float ribs = sin((uv.x + 0.035*sin(t*0.07))*34.0);
@@ -137,6 +131,7 @@ class FlowRenderer {
         shader.setFloatUniform("brightness", brightness)
         shader.setFloatUniform("softness", blur)
         shader.setFloatUniform("graphicsMode", if (graphicsMode == "fluted") 1f else 0f)
+        shader.setFloatUniform("beat", (BeatAnalyzer.level * beatStrength).coerceIn(0f, 1f))
         shader.setColorUniform("colorA", colors[0])
         shader.setColorUniform("colorB", colors[1 % colors.size])
         shader.setColorUniform("colorC", colors[2 % colors.size])
@@ -149,16 +144,16 @@ class FlowRenderer {
         val w = canvas.width.toFloat()
         val h = canvas.height.toFloat()
         canvas.drawColor(Color.rgb(3, 4, 9))
-        val t = integratedTime() * 0.88f
-        val base = maxOf(w, h) * scale
+        val beat = (BeatAnalyzer.level * beatStrength).coerceIn(0f, 1f)
+        val t = integratedTime() * (0.88f + beat * 0.18f)
+        val base = maxOf(w, h) * scale * (1f + beat * 0.10f)
 
-        // Fallback also uses overlapping elongated gradients with phase offsets,
-        // avoiding the obvious orbiting-circle look as much as Canvas allows.
         for (i in 0 until 10) {
             val raw = colors[i % colors.size]
-            val rr = (Color.red(raw) * brightness).toInt().coerceIn(0, 255)
-            val gg = (Color.green(raw) * brightness).toInt().coerceIn(0, 255)
-            val bb = (Color.blue(raw) * brightness).toInt().coerceIn(0, 255)
+            val boost = 1f + beat * 0.20f
+            val rr = (Color.red(raw) * brightness * boost).toInt().coerceIn(0, 255)
+            val gg = (Color.green(raw) * brightness * boost).toInt().coerceIn(0, 255)
+            val bb = (Color.blue(raw) * brightness * boost).toInt().coerceIn(0, 255)
             val phase = i * 0.71f
             val p = t * (0.070f + i * 0.0035f) + phase
             val q = t * (0.052f + i * 0.0027f) + phase * 1.37f
