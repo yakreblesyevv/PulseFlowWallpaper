@@ -9,7 +9,6 @@ import android.graphics.drawable.GradientDrawable
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -41,14 +40,13 @@ class MainActivity : Activity() {
         scroll.addView(root)
         frame.addView(scroll, FrameLayout.LayoutParams(-1, -1))
 
-        fun text(value: String, size: Float, color: Int = Color.WHITE, top: Int = 0): TextView {
-            return TextView(this).apply {
+        fun text(value: String, size: Float, color: Int = Color.WHITE, top: Int = 0): TextView =
+            TextView(this).apply {
                 text = value
                 textSize = size
                 setTextColor(color)
                 setPadding(0, dp(top), 0, dp(6))
             }
-        }
 
         fun cardBackground(fillAlpha: Int = 58, strokeAlpha: Int = 70) = GradientDrawable().apply {
             cornerRadius = dp(18).toFloat()
@@ -128,17 +126,18 @@ class MainActivity : Activity() {
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
         root.addView(text("Fluid Wallpaper Lab", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-        root.addView(text("v0.14 • Reactive Album Flow", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
+        root.addView(text("v0.15 • Safer Reactive Build", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
         root.addView(previewCard, LinearLayout.LayoutParams(-1, dp(235)).apply {
             topMargin = dp(12)
             bottomMargin = dp(8)
         })
 
-        section("COLOR PALETTES", "Manuel palet seçebilir veya albüm kapağından otomatik renk üretebilirsin.")
+        section("COLOR PALETTES", "Palete dokunduğunda önizleme anında güncellenir.")
         val paletteGrid = GridLayout(this).apply {
             columnCount = 2
             useDefaultMargins = false
         }
+
         fun rebuildPalettes() {
             paletteGrid.removeAllViews()
             val selected = PaletteStore.selectedName(this)
@@ -149,11 +148,13 @@ class MainActivity : Activity() {
                     background = GradientDrawable().apply {
                         cornerRadius = dp(16).toFloat()
                         setColor(Color.argb(if (preset.name == selected) 90 else 46, 12, 12, 20))
-                        setStroke(dp(if (preset.name == selected) 2 else 1), if (preset.name == selected) Color.rgb(190, 160, 255) else Color.argb(55, 220, 210, 255))
+                        setStroke(
+                            dp(if (preset.name == selected) 2 else 1),
+                            if (preset.name == selected) Color.rgb(190, 160, 255) else Color.argb(55, 220, 210, 255)
+                        )
                     }
                     isClickable = true
                     setOnClickListener {
-                        FlowSettings.saveAlbumColors(this@MainActivity, false)
                         PaletteStore.savePreset(this@MainActivity, index)
                         rebuildPalettes()
                         reloadPreviews()
@@ -178,7 +179,9 @@ class MainActivity : Activity() {
                 }
                 card.addView(swatches)
                 card.addView(text(preset.name, 12f, Color.WHITE, 8).apply { gravity = Gravity.CENTER })
-                if (preset.name == selected) card.addView(text("SEÇİLİ", 9f, Color.rgb(201, 184, 255)).apply { gravity = Gravity.CENTER })
+                if (preset.name == selected) {
+                    card.addView(text("SEÇİLİ", 9f, Color.rgb(201, 184, 255)).apply { gravity = Gravity.CENTER })
+                }
                 paletteGrid.addView(card, GridLayout.LayoutParams().apply {
                     width = 0
                     height = GridLayout.LayoutParams.WRAP_CONTENT
@@ -190,30 +193,24 @@ class MainActivity : Activity() {
         rebuildPalettes()
         root.addView(paletteGrid)
 
-        section("DYNAMIC ALBUM COLORS", "Şarkı değiştiğinde albüm kapağının baskın renkleri akışa otomatik uygulanır.")
-        toggle("Album Art Colors", FlowSettings.loadAlbumColors(this)) { enabled ->
-            FlowSettings.saveAlbumColors(this, enabled)
-            if (enabled && !hasNotificationAccess()) {
-                Toast.makeText(this, "Albüm kapağını okuyabilmek için bildirim erişimini aç.", Toast.LENGTH_LONG).show()
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-            }
-        }
-        root.addView(Button(this).apply {
-            text = "ALBÜM RENGİ ERİŞİMİNİ AÇ"
-            setOnClickListener { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-        root.addView(text("Manuel bir palete dokunursan otomatik albüm rengi kapanır.", 11f, Color.LTGRAY))
-
         section("FLUID SETTINGS", "Akışın hızını ve ölçeğini canlı önizlemeden ayarla.")
         val speedWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = cardBackground(44, 45)
             setPadding(dp(14), dp(8), dp(14), dp(8))
         }
-        val rangeLabel = text("Speed  %.2f – %.2f".format(FlowSettings.loadSpeedMin(this), FlowSettings.loadSpeedMax(this)), 14f)
+        val rangeLabel = text(
+            "Speed  %.2f – %.2f".format(FlowSettings.loadSpeedMin(this), FlowSettings.loadSpeedMax(this)),
+            14f
+        )
         speedWrap.addView(rangeLabel)
         speedWrap.addView(RangeSliderView(this).apply {
-            configure(0.05f, 4.5f, FlowSettings.loadSpeedMin(this@MainActivity), FlowSettings.loadSpeedMax(this@MainActivity))
+            configure(
+                0.05f,
+                4.5f,
+                FlowSettings.loadSpeedMin(this@MainActivity),
+                FlowSettings.loadSpeedMax(this@MainActivity)
+            )
             setOnRangeChangedListener { lo, hi ->
                 rangeLabel.text = "Speed  %.2f – %.2f".format(lo, hi)
                 FlowSettings.saveSpeedRange(this@MainActivity, lo, hi)
@@ -232,8 +229,16 @@ class MainActivity : Activity() {
             setPadding(dp(14), dp(8), dp(14), dp(8))
         }
         val graphics = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        val blurRadio = RadioButton(this).apply { text = "Blur"; setTextColor(Color.WHITE); id = View.generateViewId() }
-        val flutedRadio = RadioButton(this).apply { text = "Fluted Glass"; setTextColor(Color.WHITE); id = View.generateViewId() }
+        val blurRadio = RadioButton(this).apply {
+            text = "Blur"
+            setTextColor(Color.WHITE)
+            id = View.generateViewId()
+        }
+        val flutedRadio = RadioButton(this).apply {
+            text = "Fluted Glass"
+            setTextColor(Color.WHITE)
+            id = View.generateViewId()
+        }
         graphics.addView(blurRadio)
         graphics.addView(flutedRadio)
         graphicsCard.addView(graphics)
@@ -246,10 +251,14 @@ class MainActivity : Activity() {
 
         section("DISPLAY")
         slider("Brightness", 0.35f, 1.35f, FlowSettings.loadBrightness(this)) { FlowSettings.saveBrightness(this, it) }
-        toggle("Adaptive Launcher Color Scheme", FlowSettings.loadAdaptiveColors(this)) { FlowSettings.saveAdaptiveColors(this, it) }
-        toggle("Performance Mode", FlowSettings.loadPerformanceMode(this)) { FlowSettings.savePerformanceMode(this, it) }
+        toggle("Adaptive Launcher Color Scheme", FlowSettings.loadAdaptiveColors(this)) {
+            FlowSettings.saveAdaptiveColors(this, it)
+        }
+        toggle("Performance Mode", FlowSettings.loadPerformanceMode(this)) {
+            FlowSettings.savePerformanceMode(this, it)
+        }
 
-        section("LIVE BEATS", "Müzik çalarken akış gerçek medya sesine göre tepki verir.")
+        section("LIVE BEATS", "Gerçek medya sesine göre akış tepki verir.")
         val liveBeats = Switch(this).apply {
             text = "Live Beats"
             textSize = 14f
@@ -273,13 +282,25 @@ class MainActivity : Activity() {
             }
         }
         root.addView(liveBeats, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-        root.addView(text("Açarken Android bir kez ses yakalama onayı gösterecek. Aktifken küçük bir PulseFlow bildirimi görünür.", 11f, Color.LTGRAY))
-        slider("Strength", 0f, 1f, FlowSettings.loadBeatStrength(this)) { FlowSettings.saveBeatStrength(this, it) }
+        root.addView(text(
+            "İlk açılışta Android ses izni ve medya yakalama onayı ister. Mikrofon kaydı yapılmaz; izin playback capture API'sinin teknik gereksinimidir.",
+            11f,
+            Color.LTGRAY
+        ))
+        slider("Strength", 0f, 1f, FlowSettings.loadBeatStrength(this)) {
+            FlowSettings.saveBeatStrength(this, it)
+        }
 
         section("PERSISTENCE")
-        toggle("Preserve after phone reboot", FlowSettings.loadPreserveReboot(this)) { FlowSettings.savePreserveReboot(this, it) }
-        toggle("Preserve after music pause", FlowSettings.loadPreservePause(this)) { FlowSettings.savePreservePause(this, it) }
-        toggle("Debug View", FlowSettings.loadDebugView(this)) { FlowSettings.saveDebugView(this, it) }
+        toggle("Preserve after phone reboot", FlowSettings.loadPreserveReboot(this)) {
+            FlowSettings.savePreserveReboot(this, it)
+        }
+        toggle("Preserve after music pause", FlowSettings.loadPreservePause(this)) {
+            FlowSettings.savePreservePause(this, it)
+        }
+        toggle("Debug View", FlowSettings.loadDebugView(this)) {
+            FlowSettings.saveDebugView(this, it)
+        }
 
         root.addView(Button(this).apply {
             text = "VARSAYILAN AYARLARA DÖN"
@@ -291,7 +312,6 @@ class MainActivity : Activity() {
                 FlowSettings.saveGraphicsMode(this@MainActivity, "blur")
                 FlowSettings.saveLiveBeats(this@MainActivity, false)
                 FlowSettings.saveBeatStrength(this@MainActivity, 0.55f)
-                FlowSettings.saveAlbumColors(this@MainActivity, false)
                 stopPlaybackCapture()
                 PaletteStore.savePreset(this@MainActivity, 7)
                 recreate()
@@ -353,13 +373,11 @@ class MainActivity : Activity() {
         BeatAnalyzer.stop()
     }
 
-    private fun hasNotificationAccess(): Boolean {
-        val flat = ComponentName(this, MusicNotificationListener::class.java).flattenToString()
-        val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
-        return enabled.contains(flat)
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == audioPermissionRequest) {
             val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
@@ -385,7 +403,7 @@ class MainActivity : Activity() {
                 suppressLiveBeatsCallback = true
                 liveBeatsSwitch?.isChecked = false
                 suppressLiveBeatsCallback = false
-                Toast.makeText(this, "Ses yakalama izni verilmedi.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Medya yakalama izni verilmedi.", Toast.LENGTH_SHORT).show()
             }
         }
     }
