@@ -8,8 +8,8 @@ object FlowSettings {
     private const val PREF = "flow_settings"
 
     fun loadSpeed(context: Context) = prefs(context).getFloat("speed", 1.0f)
-    fun loadSpeedMin(context: Context) = prefs(context).getFloat("speed_min", 0.22f)
-    fun loadSpeedMax(context: Context) = prefs(context).getFloat("speed_max", 1.10f)
+    fun loadSpeedMin(context: Context) = prefs(context).getFloat("speed_min", 0.45f)
+    fun loadSpeedMax(context: Context) = prefs(context).getFloat("speed_max", 2.0f)
     fun loadScale(context: Context) = prefs(context).getFloat("scale", 1.0f)
     fun loadBrightness(context: Context) = prefs(context).getFloat("brightness", 1.0f)
     fun loadBlur(context: Context) = prefs(context).getFloat("blur", 0.72f)
@@ -22,10 +22,10 @@ object FlowSettings {
     fun loadLiveBeats(context: Context) = prefs(context).getBoolean("live_beats", false)
     fun loadBeatStrength(context: Context) = prefs(context).getFloat("beat_strength", 0.55f)
 
-    fun saveSpeed(context: Context, value: Float) = saveFloat(context, "speed", value.coerceIn(0.05f, 2.5f))
+    fun saveSpeed(context: Context, value: Float) = saveFloat(context, "speed", value.coerceIn(0.05f, 4.5f))
     fun saveSpeedRange(context: Context, min: Float, max: Float) {
-        val lo = min.coerceIn(0.05f, 2.5f)
-        val hi = max.coerceIn(lo + 0.01f, 2.5f)
+        val lo = min.coerceIn(0.05f, 4.5f)
+        val hi = max.coerceIn(lo + 0.01f, 4.5f)
         prefs(context).edit().putFloat("speed_min", lo).putFloat("speed_max", hi).apply()
         broadcast(context)
     }
@@ -42,15 +42,20 @@ object FlowSettings {
     fun saveBeatStrength(context: Context, value: Float) = saveFloat(context, "beat_strength", value.coerceIn(0f, 1f))
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-    private fun broadcast(context: Context) = context.sendBroadcast(Intent(ACTION_SETTINGS_CHANGED).setPackage(context.packageName))
+    private fun broadcast(context: Context) {
+        context.sendBroadcast(Intent(ACTION_SETTINGS_CHANGED).setPackage(context.packageName))
+    }
 
     private fun saveFloat(context: Context, key: String, value: Float) {
-        prefs(context).edit().putFloat(key, value).apply(); broadcast(context)
+        prefs(context).edit().putFloat(key, value).apply()
+        broadcast(context)
     }
     private fun saveBool(context: Context, key: String, value: Boolean) {
-        prefs(context).edit().putBoolean(key, value).apply(); broadcast(context)
+        prefs(context).edit().putBoolean(key, value).apply()
+        broadcast(context)
     }
     private fun saveString(context: Context, key: String, value: String) {
-        prefs(context).edit().putString(key, value).apply(); broadcast(context)
+        prefs(context).edit().putString(key, value).apply()
+        broadcast(context)
     }
 }
