@@ -15,19 +15,10 @@ android {
         versionName = "0.2"
     }
 
-    signingConfigs {
-        create("release") {
-            storeFile = file(System.getenv("PULSEFLOW_KEYSTORE") ?: "pulseflow-release.jks")
-            storePassword = System.getenv("PULSEFLOW_STORE_PASSWORD") ?: "pulseflow-test-2026"
-            keyAlias = System.getenv("PULSEFLOW_KEY_ALIAS") ?: "pulseflow"
-            keyPassword = System.getenv("PULSEFLOW_KEY_PASSWORD") ?: "pulseflow-test-2026"
-        }
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
