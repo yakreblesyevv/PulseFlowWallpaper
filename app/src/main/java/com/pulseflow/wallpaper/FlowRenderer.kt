@@ -11,8 +11,8 @@ class FlowRenderer {
     private var runtimeShader: RuntimeShader? = null
     private var gpuShaderFailed = false
 
-    var speedMin = 0.22f
-    var speedMax = 1.10f
+    var speedMin = 0.45f
+    var speedMax = 2.0f
     var scale = 1.0f
     var brightness = 1.0f
     var blur = 0.72f
@@ -53,7 +53,10 @@ class FlowRenderer {
         half4 main(float2 fragCoord) {
             float2 uv=(fragCoord-0.5*resolution)/min(resolution.x,resolution.y);
             uv/=max(scale,0.42);
-            float t=time*0.42;
+
+            // v0.9: preserve the heavy oil character, but move the whole
+            // deformation field substantially faster so motion is obvious.
+            float t=time*0.72;
             float2 p=flowWarp(uv,t);
 
             if (graphicsMode>0.5) {
@@ -132,7 +135,7 @@ class FlowRenderer {
 
     private fun drawFallback(canvas: Canvas) {
         val w=canvas.width.toFloat(); val h=canvas.height.toFloat(); canvas.drawColor(Color.rgb(3,4,9))
-        val t=integratedTime()*0.42f; val base=maxOf(w,h)*scale
+        val t=integratedTime()*0.72f; val base=maxOf(w,h)*scale
         for(i in 0 until 8){
             val raw=colors[i%colors.size]
             val rr=(Color.red(raw)*brightness).toInt().coerceIn(0,255)
