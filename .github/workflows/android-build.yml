@@ -24,5 +24,5 @@ jobs:
         run: gradle :app:assembleRelease --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: PulseFlow-v0.3-installable-apk
+          name: PulseFlow-v0.4-fluid-speed-apk
           path: app/build/outputs/apk/release/app-release.apk
