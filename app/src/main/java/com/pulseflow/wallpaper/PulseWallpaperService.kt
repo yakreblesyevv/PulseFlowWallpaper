@@ -19,20 +19,29 @@ class PulseWallpaperService : WallpaperService() {
         private val tick = object : Runnable {
             override fun run() {
                 draw()
-                if (visible) handler.postDelayed(this, 33)
+                if (visible) handler.postDelayed(this, 16)
             }
         }
 
         private val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                renderer.colors = PaletteStore.load(this@PulseWallpaperService)
+                when (intent?.action) {
+                    PaletteStore.ACTION_PALETTE -> renderer.colors = PaletteStore.load(this@PulseWallpaperService)
+                    FlowSettings.ACTION_SPEED_CHANGED -> renderer.speed = FlowSettings.loadSpeed(this@PulseWallpaperService)
+                }
             }
         }
 
         override fun onCreate(holder: SurfaceHolder?) {
             super.onCreate(holder)
             renderer.colors = PaletteStore.load(this@PulseWallpaperService)
-            val filter = IntentFilter(PaletteStore.ACTION_PALETTE)
+            renderer.speed = FlowSettings.loadSpeed(this@PulseWallpaperService)
+
+            val filter = IntentFilter().apply {
+                addAction(PaletteStore.ACTION_PALETTE)
+                addAction(FlowSettings.ACTION_SPEED_CHANGED)
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
             } else {
