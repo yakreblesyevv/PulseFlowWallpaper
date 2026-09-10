@@ -17,6 +17,8 @@ class FlowPreviewView @JvmOverloads constructor(private val c: Context, a: Attri
         renderer.brightness = FlowSettings.loadBrightness(c)
         renderer.blur = FlowSettings.loadBlur(c)
         renderer.graphicsMode = FlowSettings.loadGraphicsMode(c)
+        renderer.beatStrength = FlowSettings.loadBeatStrength(c)
+        if (FlowSettings.loadLiveBeats(c)) BeatAnalyzer.start(c) else BeatAnalyzer.stop()
         invalidate()
     }
 
