@@ -28,6 +28,7 @@ class FlowRenderer {
         uniform float softness;
         uniform float graphicsMode;
         uniform float beat;
+        uniform float bass;
         layout(color) uniform half4 colorA;
         layout(color) uniform half4 colorB;
         layout(color) uniform half4 colorC;
@@ -47,46 +48,55 @@ class FlowRenderer {
             return v;
         }
 
-        float2 liquidWarp(float2 p, float t) {
+        float2 liquidWarp(float2 p, float t, float b, float low) {
             float2 q = p;
             float a = field(q*0.82 + float2(0.0, t*0.032), t);
-            float b = field(rot(q, 1.5708)*0.88 + float2(t*0.026, 0.0), t+5.0);
-            q += float2(a, b) * 0.29;
+            float bb = field(rot(q, 1.5708)*0.88 + float2(t*0.026, 0.0), t+5.0);
+            q += float2(a, bb) * (0.29 + b*0.12);
+
             float c = field(q*1.24 + float2(t*0.018, -t*0.023), t+10.0);
             float d = field(rot(q, -0.73)*1.18 + float2(-t*0.020, t*0.015), t+16.0);
-            q += float2(c, d) * 0.18;
-            q.x += 0.055*sin(q.y*3.0 + t*0.10) + 0.028*sin((q.x+q.y)*5.0-t*0.06);
-            q.y += 0.050*cos(q.x*2.7 - t*0.09) + 0.026*cos((q.x-q.y)*4.6+t*0.055);
+            q += float2(c, d) * (0.18 + low*0.09);
+
+            // Beat displacement bends the same liquid field instead of zooming the whole image.
+            float phase = t*0.20;
+            float2 beatWarp = float2(
+                sin(q.y*2.7 + phase) + 0.55*sin((q.x+q.y)*4.4 - phase*0.7),
+                cos(q.x*2.5 - phase*0.9) + 0.55*cos((q.x-q.y)*4.1 + phase*0.6)
+            );
+            q += beatWarp * (b*0.105 + low*0.060);
+
+            q.x += (0.055 + b*0.040)*sin(q.y*3.0 + t*0.10) + 0.028*sin((q.x+q.y)*5.0-t*0.06);
+            q.y += (0.050 + b*0.036)*cos(q.x*2.7 - t*0.09) + 0.026*cos((q.x-q.y)*4.6+t*0.055);
             return q;
         }
 
         half4 main(float2 fragCoord) {
             float2 uv = (fragCoord - 0.5*resolution) / min(resolution.x, resolution.y);
-            float pulseScale = 1.0 + beat * 0.10;
-            uv /= max(scale * pulseScale, 0.42);
+            uv /= max(scale, 0.42);
 
-            float t = time * (0.88 + beat * 0.18);
-            float2 p = liquidWarp(uv, t);
+            float t = time * (0.88 + beat * 0.10);
+            float2 p = liquidWarp(uv, t, beat, bass);
 
             float n1 = field(p*0.94, t+2.0);
             float n2 = field(rot(p, 0.92)*1.03 + float2(0.24,-0.11), -t*0.78+7.0);
             float n3 = field(rot(p,-0.61)*0.89 + float2(-0.18,0.27), t*0.64+13.0);
 
-            float ribbon1 = 0.5 + 0.5*sin(p.x*1.45 + p.y*0.72 + n1*1.55 + t*0.075);
-            float ribbon2 = 0.5 + 0.5*sin(-p.x*0.78 + p.y*1.62 + n2*1.42 - t*0.060 + 1.9);
-            float ribbon3 = 0.5 + 0.5*sin(p.x*1.05 - p.y*1.12 + n3*1.30 + t*0.052 + 4.1);
+            float ribbon1 = 0.5 + 0.5*sin(p.x*1.45 + p.y*0.72 + n1*(1.55+beat*0.34) + t*0.075);
+            float ribbon2 = 0.5 + 0.5*sin(-p.x*0.78 + p.y*1.62 + n2*(1.42+bass*0.28) - t*0.060 + 1.9);
+            float ribbon3 = 0.5 + 0.5*sin(p.x*1.05 - p.y*1.12 + n3*(1.30+beat*0.25) + t*0.052 + 4.1);
 
-            float wa = smoothstep(0.20, 0.88, ribbon1);
-            float wb = smoothstep(0.16, 0.91, ribbon2);
-            float wc = smoothstep(0.22, 0.86, ribbon3);
+            float wa = smoothstep(0.18, 0.90, ribbon1);
+            float wb = smoothstep(0.14, 0.92, ribbon2);
+            float wc = smoothstep(0.20, 0.88, ribbon3);
 
             half3 col = mix(colorA.rgb, colorB.rgb, half(wb));
-            col = mix(col, colorC.rgb, half(wc*0.78));
-            col = mix(col, colorA.rgb, half(wa*0.48));
+            col = mix(col, colorC.rgb, half(wc*0.80));
+            col = mix(col, colorA.rgb, half(wa*0.46));
 
             float gloss = 0.5 + 0.5*sin((p.x*0.60+p.y*0.82)*3.14159 + n1*0.82 - t*0.045);
             float depth = 0.82 + 0.18*gloss + 0.07*(n2+n3);
-            depth *= 1.0 + beat * 0.22;
+            depth *= 1.0 + beat * 0.10;
 
             if (graphicsMode > 0.5) {
                 float ribs = sin((uv.x + 0.035*sin(t*0.07))*34.0);
@@ -125,13 +135,16 @@ class FlowRenderer {
 
     private fun drawGpu(canvas: Canvas) {
         val shader = runtimeShader ?: RuntimeShader(shaderCode).also { runtimeShader = it }
+        val beat = (BeatAnalyzer.level * beatStrength).coerceIn(0f, 1f)
+        val bass = (BeatAnalyzer.bass * beatStrength).coerceIn(0f, 1f)
         shader.setFloatUniform("resolution", canvas.width.toFloat(), canvas.height.toFloat())
         shader.setFloatUniform("time", integratedTime())
         shader.setFloatUniform("scale", scale)
         shader.setFloatUniform("brightness", brightness)
         shader.setFloatUniform("softness", blur)
         shader.setFloatUniform("graphicsMode", if (graphicsMode == "fluted") 1f else 0f)
-        shader.setFloatUniform("beat", (BeatAnalyzer.level * beatStrength).coerceIn(0f, 1f))
+        shader.setFloatUniform("beat", beat)
+        shader.setFloatUniform("bass", bass)
         shader.setColorUniform("colorA", colors[0])
         shader.setColorUniform("colorB", colors[1 % colors.size])
         shader.setColorUniform("colorC", colors[2 % colors.size])
@@ -145,21 +158,23 @@ class FlowRenderer {
         val h = canvas.height.toFloat()
         canvas.drawColor(Color.rgb(3, 4, 9))
         val beat = (BeatAnalyzer.level * beatStrength).coerceIn(0f, 1f)
-        val t = integratedTime() * (0.88f + beat * 0.18f)
-        val base = maxOf(w, h) * scale * (1f + beat * 0.10f)
+        val bass = (BeatAnalyzer.bass * beatStrength).coerceIn(0f, 1f)
+        val t = integratedTime() * (0.88f + beat * 0.10f)
+        val base = maxOf(w, h) * scale
 
         for (i in 0 until 10) {
             val raw = colors[i % colors.size]
-            val boost = 1f + beat * 0.20f
+            val boost = 1f + beat * 0.10f
             val rr = (Color.red(raw) * brightness * boost).toInt().coerceIn(0, 255)
             val gg = (Color.green(raw) * brightness * boost).toInt().coerceIn(0, 255)
             val bb = (Color.blue(raw) * brightness * boost).toInt().coerceIn(0, 255)
             val phase = i * 0.71f
             val p = t * (0.070f + i * 0.0035f) + phase
             val q = t * (0.052f + i * 0.0027f) + phase * 1.37f
-            val x = w * (0.50f + 0.48f * sin(p.toDouble()).toFloat())
-            val y = h * (0.50f + 0.44f * cos(q.toDouble()).toFloat())
-            val radius = base * (0.92f + 0.18f * sin((p * 0.7f + q).toDouble()).toFloat())
+            val wobble = beat * (0.08f + 0.02f * (i % 3))
+            val x = w * (0.50f + (0.48f + wobble) * sin((p + bass*0.35f).toDouble()).toFloat())
+            val y = h * (0.50f + (0.44f + wobble*0.8f) * cos((q - beat*0.30f).toDouble()).toFloat())
+            val radius = base * (0.92f + 0.18f * sin((p * 0.7f + q).toDouble()).toFloat() + beat*0.08f)
             paint.shader = RadialGradient(
                 x, y, radius,
                 Color.argb(if (i < 4) 150 else 92, rr, gg, bb),
