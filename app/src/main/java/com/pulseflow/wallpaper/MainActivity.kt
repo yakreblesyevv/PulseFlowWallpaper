@@ -19,6 +19,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(28), dp(20), dp(28))
         }
+        val preview = FlowPreviewView(this)
         scroll.addView(root)
 
         fun text(value: String, size: Float, color: Int = Color.WHITE, top: Int = 0): TextView {
@@ -58,8 +59,6 @@ class MainActivity : Activity() {
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
         root.addView(text("Fluid Wallpaper Lab", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-
-        val preview = FlowPreviewView(this)
         root.addView(preview, LinearLayout.LayoutParams(-1, dp(250)).apply { setMargins(0, dp(10), 0, dp(8)) })
 
         section("FLUID SETTINGS")
