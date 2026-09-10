@@ -21,6 +21,7 @@ object FlowSettings {
     fun loadDebugView(context: Context) = prefs(context).getBoolean("debug_view", false)
     fun loadLiveBeats(context: Context) = prefs(context).getBoolean("live_beats", false)
     fun loadBeatStrength(context: Context) = prefs(context).getFloat("beat_strength", 0.55f)
+    fun loadAlbumColors(context: Context) = prefs(context).getBoolean("album_colors", false)
 
     fun saveSpeed(context: Context, value: Float) = saveFloat(context, "speed", value.coerceIn(0.05f, 4.5f))
     fun saveSpeedRange(context: Context, min: Float, max: Float) {
@@ -40,6 +41,7 @@ object FlowSettings {
     fun saveDebugView(context: Context, value: Boolean) = saveBool(context, "debug_view", value)
     fun saveLiveBeats(context: Context, value: Boolean) = saveBool(context, "live_beats", value)
     fun saveBeatStrength(context: Context, value: Float) = saveFloat(context, "beat_strength", value.coerceIn(0f, 1f))
+    fun saveAlbumColors(context: Context, value: Boolean) = saveBool(context, "album_colors", value)
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     private fun broadcast(context: Context) {
