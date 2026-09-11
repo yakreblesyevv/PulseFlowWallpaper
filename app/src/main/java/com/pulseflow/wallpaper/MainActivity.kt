@@ -24,12 +24,31 @@ class MainActivity : Activity() {
     private val audioPermissionRequest = 1301
     private val uiHandler = Handler(Looper.getMainLooper())
     private var beatStatusText: TextView? = null
+    private var nowPlayingText: TextView? = null
+    private var albumSwitch: Switch? = null
+    private var permissionButton: Button? = null
+    private var meterPanel: View? = null
+    private var settingsScroll: ScrollView? = null
+    private var previewExit: Button? = null
+    private val audioConsumer = "settings"
     private var bassBar: ProgressBar? = null
     private var beatBar: ProgressBar? = null
 
     private val diagnosticsTick = object : Runnable {
         override fun run() {
             val enabled = FlowSettings.loadLiveBeats(this@MainActivity)
+            val p = getSharedPreferences("now_playing", MODE_PRIVATE)
+            val title = p.getString("title", "").orEmpty()
+            val artist = p.getString("artist", "").orEmpty()
+            nowPlayingText?.text = when {
+                !FlowSettings.loadAlbumColors(this@MainActivity) -> "Varsayılan renkler kullanılıyor"
+                !hasNotificationAccess() -> "Albüm kapağı için bildirim erişimini aç"
+                title.isBlank() -> "Müzik bekleniyor · Bir şarkı çal"
+                AlbumArtStore.texture == null -> "$title\n$artist · Albüm kapağı bekleniyor"
+                else -> "$title\n$artist${if(p.getBoolean("playing",false)) "" else " · Duraklatıldı"}"
+            }
+            permissionButton?.visibility = if(hasNotificationAccess()) View.GONE else View.VISIBLE
+            meterPanel?.visibility = if(FlowSettings.loadDebugView(this@MainActivity)) View.VISIBLE else View.GONE
             val status = if (!enabled) "OFF" else BeatAnalyzer.statusText()
             beatStatusText?.text = "Sinyal: $status   •   BASS %.2f   •   BEAT %.2f".format(BeatAnalyzer.bass, BeatAnalyzer.level)
             bassBar?.progress = (BeatAnalyzer.bass * 1000f).toInt().coerceIn(0, 1000)
@@ -42,6 +61,11 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         val frame = FrameLayout(this)
+        frame.setOnApplyWindowInsetsListener { view, insets ->
+            @Suppress("DEPRECATION")
+            view.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom)
+            insets
+        }
         val backdrop = FlowPreviewView(this)
         frame.addView(backdrop, FrameLayout.LayoutParams(-1, -1))
 
@@ -53,6 +77,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(26), dp(18), dp(30))
         }
+        settingsScroll=scroll
         scroll.addView(root)
         frame.addView(scroll, FrameLayout.LayoutParams(-1, -1))
 
@@ -140,14 +165,37 @@ class MainActivity : Activity() {
         }
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
-        root.addView(text("Fluid Wallpaper Lab", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-        root.addView(text("v0.19 • Calibrated Reactive Liquid", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
+        root.addView(text("Müziğinin renkleri, akış hâlinde", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
+        root.addView(text("v0.21 • Albüm akışı", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
         root.addView(previewCard, LinearLayout.LayoutParams(-1, dp(235)).apply {
             topMargin = dp(12)
             bottomMargin = dp(8)
         })
 
-        section("COLOR PALETTES", "Palete dokunduğunda önizleme anında güncellenir.")
+        root.addView(Button(this).apply {
+            text="TAM EKRAN ÖNİZLEME"
+            setOnClickListener { scroll.visibility=View.GONE; previewExit?.visibility=View.VISIBLE }
+        })
+        section("ŞİMDİ ÇALIYOR")
+        nowPlayingText=text("Müzik bekleniyor",15f)
+        root.addView(nowPlayingText)
+        albumSwitch=toggle("Albüm kapağından otomatik renkler", FlowSettings.loadAlbumColors(this)) {
+            FlowSettings.saveAlbumColors(this,it)
+            if(it && !hasNotificationAccess()) openNotificationAccess()
+        }
+        permissionButton=Button(this).apply {
+            text="ALBÜM KAPAĞI ERİŞİMİNİ AÇ"
+            setOnClickListener { openNotificationAccess() }
+        }
+        root.addView(permissionButton)
+        root.addView(Button(this).apply {
+            text="MÜZİK UYGULAMASINI AÇ"
+            setOnClickListener {
+                runCatching { startActivity(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN,Intent.CATEGORY_APP_MUSIC)) }
+                    .onFailure { Toast.makeText(this@MainActivity,"Spotify veya kullandığın müzik uygulamasından bir şarkı aç.",Toast.LENGTH_LONG).show() }
+            }
+        })
+        section("VARSAYILAN RENKLER", "Albüm modu kapalıyken veya kapak yokken kullanılır.")
         val paletteGrid = GridLayout(this).apply { columnCount = 2 }
         fun rebuildPalettes() {
             paletteGrid.removeAllViews()
@@ -238,7 +286,7 @@ class MainActivity : Activity() {
         toggle("Adaptive Launcher Color Scheme", FlowSettings.loadAdaptiveColors(this)) { FlowSettings.saveAdaptiveColors(this, it) }
         toggle("Performance Mode", FlowSettings.loadPerformanceMode(this)) { FlowSettings.savePerformanceMode(this, it) }
 
-        section("LIVE BEATS", "Ekran paylaşımı yok. Bas frekansları sıvı alanının kendisini büker.")
+        section("LIVE BEATS", "Bas vuruşları akışı hareketlendirir. Güç ayarı tepkinin miktarını değiştirir.")
         val liveBeats = Switch(this).apply {
             text = "Live Beats"
             textSize = 14f
@@ -272,6 +320,7 @@ class MainActivity : Activity() {
         meterCard.addView(text("BEAT", 10f, Color.LTGRAY, 5))
         beatBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 1000 }
         meterCard.addView(beatBar, LinearLayout.LayoutParams(-1, dp(12)))
+        meterPanel=meterCard
         root.addView(meterCard, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
 
         slider("Strength", 0f, 1f, FlowSettings.loadBeatStrength(this)) { FlowSettings.saveBeatStrength(this, it) }
@@ -307,12 +356,18 @@ class MainActivity : Activity() {
             }
         }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
 
+        previewExit=Button(this).apply {
+            text="AYARLARA DÖN"
+            visibility=View.GONE
+            setOnClickListener { scroll.visibility=View.VISIBLE; visibility=View.GONE }
+        }
+        frame.addView(previewExit,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin=dp(16) })
         setContentView(frame)
 
         if (FlowSettings.loadLiveBeats(this) && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            BeatAnalyzer.start(this)
+            BeatAnalyzer.setConsumer(this,audioConsumer,true)
         }
-        uiHandler.post(diagnosticsTick)
+
     }
 
     private fun enableLiveBeats(button: CompoundButton) {
@@ -328,7 +383,7 @@ class MainActivity : Activity() {
     }
 
     private fun activateLiveBeats() {
-        val ok = BeatAnalyzer.start(this)
+        val ok = BeatAnalyzer.setConsumer(this,audioConsumer,true)
         if (ok) {
             FlowSettings.saveLiveBeats(this, true)
             suppressLiveBeatsCallback = true
@@ -344,6 +399,33 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun hasNotificationAccess(): Boolean {
+        val manager=getSystemService(android.app.NotificationManager::class.java)
+        if(android.os.Build.VERSION.SDK_INT>=27) return manager.isNotificationListenerAccessGranted(ComponentName(this,MusicNotificationListener::class.java))
+        val enabled=android.provider.Settings.Secure.getString(contentResolver,"enabled_notification_listeners").orEmpty()
+        return enabled.split(":").mapNotNull { ComponentName.unflattenFromString(it) }.any { it.packageName==packageName }
+    }
+    private fun openNotificationAccess() {
+        runCatching { startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            .onFailure { Toast.makeText(this,"Ayarlar → Bildirim erişimi → PulseFlow",Toast.LENGTH_LONG).show() }
+    }
+    override fun onStart() {
+        super.onStart()
+        BeatAnalyzer.setConsumer(this,audioConsumer,FlowSettings.loadLiveBeats(this))
+        uiHandler.removeCallbacks(diagnosticsTick)
+        uiHandler.post(diagnosticsTick)
+    }
+    override fun onStop() {
+        uiHandler.removeCallbacks(diagnosticsTick)
+        BeatAnalyzer.setConsumer(this,audioConsumer,false)
+        super.onStop()
+    }
+    @Deprecated("Legacy back handling")
+    override fun onBackPressed() {
+        if(settingsScroll?.visibility==View.GONE) {
+            settingsScroll?.visibility=View.VISIBLE; previewExit?.visibility=View.GONE
+        } else super.onBackPressed()
+    }
     override fun onDestroy() {
         uiHandler.removeCallbacks(diagnosticsTick)
         super.onDestroy()
