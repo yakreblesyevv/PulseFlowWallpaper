@@ -24,11 +24,9 @@ class MainActivity : Activity() {
     private val audioPermissionRequest = 1301
     private val uiHandler = Handler(Looper.getMainLooper())
     private var beatStatusText: TextView? = null
-    private var selectedImageText: TextView? = null
+    private var nowPlayingText: TextView? = null
     private var albumSwitch: Switch? = null
-    private val imageRequest = 1401
-    private val imageWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
-    private var imageButton: Button? = null
+    private var permissionButton: Button? = null
     private var meterPanel: View? = null
     private var settingsScroll: ScrollView? = null
     private var previewExit: Button? = null
@@ -39,11 +37,17 @@ class MainActivity : Activity() {
     private val diagnosticsTick = object : Runnable {
         override fun run() {
             val enabled = FlowSettings.loadLiveBeats(this@MainActivity)
-            selectedImageText?.text = when {
+            val p = getSharedPreferences("now_playing", MODE_PRIVATE)
+            val title = p.getString("title", "").orEmpty()
+            val artist = p.getString("artist", "").orEmpty()
+            nowPlayingText?.text = when {
                 !FlowSettings.loadAlbumColors(this@MainActivity) -> "Varsayılan renkler kullanılıyor"
-                AlbumArtStore.texture == null -> "Renklerini kullanmak için bir görsel seç"
-                else -> "Seçtiğin görselin renkleri kullanılıyor"
+                !hasNotificationAccess() -> "Albüm kapağı için bildirim erişimini aç"
+                title.isBlank() -> "Müzik bekleniyor · Bir şarkı çal"
+                AlbumArtStore.texture == null -> "$title\n$artist · Albüm kapağı bekleniyor"
+                else -> "$title\n$artist${if(p.getBoolean("playing",false)) "" else " · Duraklatıldı"}"
             }
+            permissionButton?.visibility = if(hasNotificationAccess()) View.GONE else View.VISIBLE
             meterPanel?.visibility = if(FlowSettings.loadDebugView(this@MainActivity)) View.VISIBLE else View.GONE
             val status = if (!enabled) "OFF" else BeatAnalyzer.statusText()
             beatStatusText?.text = "Sinyal: $status   •   BASS %.2f   •   BEAT %.2f".format(BeatAnalyzer.bass, BeatAnalyzer.level)
@@ -162,7 +166,7 @@ class MainActivity : Activity() {
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
         root.addView(text("Müziğinin renkleri, akış hâlinde", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-        root.addView(text("v0.22 • Görsel akışı", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
+        root.addView(text("v0.23 • Otomatik albüm akışı", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
         root.addView(previewCard, LinearLayout.LayoutParams(-1, dp(235)).apply {
             topMargin = dp(12)
             bottomMargin = dp(8)
@@ -172,25 +176,18 @@ class MainActivity : Activity() {
             text="TAM EKRAN ÖNİZLEME"
             setOnClickListener { scroll.visibility=View.GONE; previewExit?.visibility=View.VISIBLE }
         })
-        section("GÖRSELDEN RENKLER", "Bu test sürümünde görseli sen seçersin. Şarkıya göre otomatik değişmez.")
-        selectedImageText=text("Bir görsel seç",15f)
-        root.addView(selectedImageText)
-        albumSwitch=toggle("Seçtiğim görselin renklerini kullan", FlowSettings.loadAlbumColors(this)) {
+        section("ŞİMDİ ÇALIYOR")
+        nowPlayingText=text("Müzik bekleniyor",15f)
+        root.addView(nowPlayingText)
+        albumSwitch=toggle("Albüm kapağından otomatik renkler", FlowSettings.loadAlbumColors(this)) {
             FlowSettings.saveAlbumColors(this,it)
+            if(it && !hasNotificationAccess()) openNotificationAccess()
         }
-        imageButton=Button(this).apply {
-            text="GALERİDEN GÖRSEL SEÇ"
-            setOnClickListener {
-                runCatching {
-                    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        type="image/*"
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    },imageRequest)
-                }.onFailure { Toast.makeText(this@MainActivity,"Görsel seçici açılamadı.",Toast.LENGTH_LONG).show() }
-            }
+        permissionButton=Button(this).apply {
+            text="ALBÜM KAPAĞI ERİŞİMİNİ AÇ"
+            setOnClickListener { openNotificationAccess() }
         }
-        root.addView(imageButton)
+        root.addView(permissionButton)
         root.addView(Button(this).apply {
             text="MÜZİK UYGULAMASINI AÇ"
             setOnClickListener {
@@ -198,7 +195,7 @@ class MainActivity : Activity() {
                     .onFailure { Toast.makeText(this@MainActivity,"Spotify veya kullandığın müzik uygulamasından bir şarkı aç.",Toast.LENGTH_LONG).show() }
             }
         })
-        section("VARSAYILAN RENKLER", "Görsel modu kapalıyken veya görsel seçilmemişken kullanılır.")
+        section("VARSAYILAN RENKLER", "Albüm modu kapalıyken veya kapak yokken kullanılır.")
         val paletteGrid = GridLayout(this).apply { columnCount = 2 }
         fun rebuildPalettes() {
             paletteGrid.removeAllViews()
@@ -329,7 +326,8 @@ class MainActivity : Activity() {
         slider("Strength", 0f, 1f, FlowSettings.loadBeatStrength(this)) { FlowSettings.saveBeatStrength(this, it) }
 
         section("PERSISTENCE")
-        toggle("Yeniden başlatınca seçili görseli koru", FlowSettings.loadPreserveReboot(this)) { FlowSettings.savePreserveReboot(this, it) }
+        toggle("Preserve after phone reboot", FlowSettings.loadPreserveReboot(this)) { FlowSettings.savePreserveReboot(this, it) }
+        toggle("Preserve after music pause", FlowSettings.loadPreservePause(this)) { FlowSettings.savePreservePause(this, it) }
         toggle("Debug View", FlowSettings.loadDebugView(this)) { FlowSettings.saveDebugView(this, it) }
 
         root.addView(Button(this).apply {
@@ -343,7 +341,6 @@ class MainActivity : Activity() {
                 FlowSettings.saveLiveBeats(this@MainActivity, false)
                 FlowSettings.saveBeatStrength(this@MainActivity, 0.55f)
                 BeatAnalyzer.stop()
-                FlowSettings.saveAlbumColors(this@MainActivity, false)
                 PaletteStore.savePreset(this@MainActivity, 7)
                 recreate()
             }
@@ -402,27 +399,15 @@ class MainActivity : Activity() {
         }
     }
 
-    @Deprecated("Platform result callback")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode,resultCode,data)
-        if(requestCode!=imageRequest || resultCode!=RESULT_OK) return
-        val uri=data?.data?:return
-        imageButton?.isEnabled=false
-        imageButton?.text="GÖRSEL HAZIRLANIYOR…"
-        imageWorker.execute {
-            val result=runCatching { SelectedImageLoader.load(this,uri) }
-            uiHandler.post {
-                if(isDestroyed) return@post
-                imageButton?.isEnabled=true
-                imageButton?.text="GALERİDEN GÖRSEL SEÇ"
-                result.onSuccess { bitmap ->
-                    AlbumArtStore.publish(this,bitmap)
-                    FlowSettings.saveAlbumColors(this,true)
-                    PaletteStore.save(this,bitmap)
-                    albumSwitch?.isChecked=true
-                }.onFailure { Toast.makeText(this,"Görsel açılamadı. Başka bir fotoğraf seç.",Toast.LENGTH_LONG).show() }
-            }
-        }
+    private fun hasNotificationAccess(): Boolean {
+        val manager=getSystemService(android.app.NotificationManager::class.java)
+        if(android.os.Build.VERSION.SDK_INT>=27) return manager.isNotificationListenerAccessGranted(ComponentName(this,MusicNotificationListener::class.java))
+        val enabled=android.provider.Settings.Secure.getString(contentResolver,"enabled_notification_listeners").orEmpty()
+        return enabled.split(":").mapNotNull { ComponentName.unflattenFromString(it) }.any { it.packageName==packageName }
+    }
+    private fun openNotificationAccess() {
+        runCatching { startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            .onFailure { Toast.makeText(this,"Ayarlar → Bildirim erişimi → PulseFlow",Toast.LENGTH_LONG).show() }
     }
     override fun onStart() {
         super.onStart()
@@ -442,7 +427,6 @@ class MainActivity : Activity() {
         } else super.onBackPressed()
     }
     override fun onDestroy() {
-        imageWorker.shutdown()
         uiHandler.removeCallbacks(diagnosticsTick)
         super.onDestroy()
     }
