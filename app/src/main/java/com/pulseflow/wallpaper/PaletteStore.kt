@@ -11,7 +11,6 @@ object PaletteStore {
     private const val PREF = "pulse_palette"
 
     data class Preset(val name: String, val colors: IntArray)
-    private data class Sample(val h: Float, val s: Float, val v: Float, val weight: Float)
 
     val presets = listOf(
         Preset("Monochrome", intArrayOf(Color.rgb(230,230,235), Color.rgb(105,110,125), Color.rgb(22,24,31))),
@@ -26,73 +25,39 @@ object PaletteStore {
 
     fun save(context: Context, bitmap: Bitmap?) {
         if (bitmap == null) return
-        val scaled = Bitmap.createScaledBitmap(bitmap, 36, 36, true)
-        val samples = ArrayList<Sample>(scaled.width * scaled.height)
-        val hsv = FloatArray(3)
-
-        for (x in 0 until scaled.width) for (y in 0 until scaled.height) {
-            val c = scaled.getPixel(x, y)
-            Color.colorToHSV(c, hsv)
-            val s = hsv[1]
-            val v = hsv[2]
-            if (v < 0.09f || v > 0.98f && s < 0.10f) continue
-            val weight = (0.25f + s * 0.85f) * (0.35f + v * 0.65f)
-            samples.add(Sample(hsv[0], s, v, weight))
+        val buckets = linkedMapOf<Int, Int>()
+        for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+            val c = bitmap.getPixel(x,y)
+            val key = (Color.red(c)/16 shl 8) or (Color.green(c)/16 shl 4) or (Color.blue(c)/16)
+            buckets[key] = (buckets[key] ?: 0) + 1
         }
-
-        if (samples.isEmpty()) return
-
-        val hueBuckets = Array(36) { mutableListOf<Sample>() }
-        samples.forEach { hueBuckets[(it.h / 10f).toInt().coerceIn(0, 35)].add(it) }
-
-        val ranked = hueBuckets.mapIndexedNotNull { index, bucket ->
-            if (bucket.isEmpty()) null else {
-                val w = bucket.sumOf { it.weight.toDouble() }.toFloat()
-                val h = bucket.sumOf { (it.h * it.weight).toDouble() }.toFloat() / w
-                val s = bucket.sumOf { (it.s * it.weight).toDouble() }.toFloat() / w
-                val v = bucket.sumOf { (it.v * it.weight).toDouble() }.toFloat() / w
-                Triple(index, Sample(h, s, v, w), w)
-            }
-        }.sortedByDescending { it.third }
-
-        val chosen = mutableListOf<Sample>()
-        for ((_, sample, _) in ranked) {
-            val distinct = chosen.all { hueDistance(it.h, sample.h) >= 32f }
-            if (distinct || chosen.isEmpty()) chosen.add(sample)
+        val ranked = buckets.entries.sortedByDescending { it.value }.map {
+            Color.rgb(((it.key shr 8) and 15)*16+8, ((it.key shr 4) and 15)*16+8, (it.key and 15)*16+8)
+        }
+        val chosen = mutableListOf<Int>()
+        for (c in ranked) {
+            if (chosen.all { kotlin.math.abs(Color.red(it)-Color.red(c)) + kotlin.math.abs(Color.green(it)-Color.green(c)) + kotlin.math.abs(Color.blue(it)-Color.blue(c)) > 80 }) chosen.add(c)
             if (chosen.size == 3) break
         }
-        for ((_, sample, _) in ranked) {
-            if (chosen.size == 3) break
-            if (chosen.none { abs(it.h - sample.h) < 1f }) chosen.add(sample)
-        }
-
-        val fallbackHues = floatArrayOf(270f, 205f, 330f)
-        val out = IntArray(3) { i ->
-            val sample = chosen.getOrNull(i)
-            val h = sample?.h ?: fallbackHues[i]
-            val s = (sample?.s ?: 0.70f).coerceIn(0.38f, 0.88f)
-            // Preserve album mood but keep wallpaper from becoming muddy or blown-out.
-            val v = (sample?.v ?: 0.82f).coerceIn(0.48f, 0.92f)
-            Color.HSVToColor(floatArrayOf(h, s, v))
-        }
+        val base = chosen.firstOrNull() ?: Color.BLACK
+        val out = IntArray(3) { chosen.getOrNull(it) ?: base }
         saveColors(context, out, "Album Art")
-    }
-
-    private fun hueDistance(a: Float, b: Float): Float {
-        val d = abs(a - b) % 360f
-        return min(d, 360f - d)
     }
 
     fun savePreset(context: Context, index: Int) {
         val preset = presets[index.coerceIn(0, presets.lastIndex)]
-        saveColors(context, preset.colors, preset.name)
+        context.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putInt("fallback", index.coerceIn(0, presets.lastIndex)).apply()
+        if (!FlowSettings.loadAlbumColors(context) || AlbumArtStore.active(context) == null) saveColors(context, preset.colors, preset.name)
     }
 
-    fun selectedName(context: Context): String =
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString("name", "Night Club") ?: "Night Club"
+    fun selectedName(context: Context): String {
+        val p=context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        return if(AlbumArtStore.active(context)!=null) "Album Art" else presets[p.getInt("fallback",7).coerceIn(0,presets.lastIndex)].name
+    }
 
     fun load(context: Context): IntArray {
         val p = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        if (AlbumArtStore.active(context) == null) return presets[p.getInt("fallback",7).coerceIn(0,presets.lastIndex)].colors
         return intArrayOf(
             p.getInt("c0", Color.rgb(80,40,190)),
             p.getInt("c1", Color.rgb(15,125,210)),
