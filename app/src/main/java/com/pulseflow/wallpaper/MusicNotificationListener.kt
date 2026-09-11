@@ -35,8 +35,7 @@ class MusicNotificationListener : NotificationListenerService() {
         connected = true
         AlbumArtStore.initialize(this)
         val filter = IntentFilter(FlowSettings.ACTION_SETTINGS_CHANGED)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(settingsChanged, filter, RECEIVER_NOT_EXPORTED)
-        else { @Suppress("DEPRECATION") registerReceiver(settingsChanged, filter) }
+        registerReceiver(settingsChanged, filter, "$packageName.INTERNAL", null, RECEIVER_NOT_EXPORTED)
         manager = getSystemService(MediaSessionManager::class.java)
         runCatching { manager?.addOnActiveSessionsChangedListener(sessionsChanged, ComponentName(this, javaClass), main) }
         refreshControllers()

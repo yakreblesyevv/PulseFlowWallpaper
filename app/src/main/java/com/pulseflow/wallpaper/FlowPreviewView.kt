@@ -32,8 +32,7 @@ class FlowPreviewView @JvmOverloads constructor(private val c: Context, a: Attri
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         val f = IntentFilter(PaletteStore.ACTION_PALETTE).apply { addAction(FlowSettings.ACTION_SETTINGS_CHANGED) }
-        if (Build.VERSION.SDK_INT >= 33) c.registerReceiver(receiver,f,Context.RECEIVER_NOT_EXPORTED)
-        else { @Suppress("DEPRECATION") c.registerReceiver(receiver,f) }
+        c.registerReceiver(receiver, f, "${c.packageName}.INTERNAL", null, Context.RECEIVER_NOT_EXPORTED)
         reload()
     }
     override fun onDetachedFromWindow() {

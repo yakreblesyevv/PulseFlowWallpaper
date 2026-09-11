@@ -53,8 +53,7 @@ class PulseWallpaperService : WallpaperService() {
                 addAction(PaletteStore.ACTION_PALETTE)
                 addAction(FlowSettings.ACTION_SETTINGS_CHANGED)
             }
-            if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, f, RECEIVER_NOT_EXPORTED)
-            else { @Suppress("DEPRECATION") registerReceiver(receiver, f) }
+            registerReceiver(receiver, f, "$packageName.INTERNAL", null, RECEIVER_NOT_EXPORTED)
         }
 
         override fun onVisibilityChanged(v: Boolean) {
