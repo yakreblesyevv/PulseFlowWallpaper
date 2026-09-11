@@ -14,10 +14,9 @@ object AlbumArtStore {
         private set
     @Volatile var revision = 0L
         private set
-    @Volatile var playing = false
     private var loaded = false
     private val disk = Executors.newSingleThreadExecutor()
-    private fun file(c: Context) = AtomicFile(File(c.filesDir, "album-texture.png"))
+    private fun file(c: Context) = AtomicFile(File(c.filesDir, "selected-texture.png"))
 
     @Synchronized fun initialize(c: Context) {
         if (loaded) return
@@ -32,7 +31,7 @@ object AlbumArtStore {
 
     fun active(c: Context): Bitmap? {
         initialize(c)
-        return if (FlowSettings.loadAlbumColors(c) && (playing || FlowSettings.loadPreservePause(c))) texture else null
+        return if (FlowSettings.loadAlbumColors(c)) texture else null
     }
 
     fun publish(c: Context, bitmap: Bitmap) {
