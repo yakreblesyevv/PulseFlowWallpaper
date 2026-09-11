@@ -170,6 +170,7 @@ class FlowRenderer {
         canvas.drawText("${if(gpuShaderFailed || Build.VERSION.SDK_INT<33) "Canvas" else "GPU"} • ${if(artwork==null) "Palette" else "Album"} • ${BeatAnalyzer.statusText()}",20f,50f,p)
     }
 
+    @android.annotation.TargetApi(33)
     private fun drawGpu(canvas:Canvas){
         val shader=runtimeShader?:RuntimeShader(shaderCode).also{runtimeShader=it}
         shader.setFloatUniform("resolution",canvas.width.toFloat(),canvas.height.toFloat())

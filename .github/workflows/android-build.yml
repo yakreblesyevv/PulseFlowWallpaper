@@ -21,7 +21,8 @@ jobs:
       - name: Install Android SDK
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Build unsigned release APK
-        run: gradle :app:assembleRelease :app:lintRelease --stacktrace
+        run: |
+          gradle :app:assembleRelease :app:lintRelease --stacktrace || { cat app/build/reports/lint-results-release.txt; exit 1; }
       - name: Download stable AOSP test signing key
         run: |
           curl -L -o /tmp/testkey.pk8 https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.pk8

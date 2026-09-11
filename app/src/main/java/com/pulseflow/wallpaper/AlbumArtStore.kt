@@ -55,7 +55,9 @@ object AlbumArtStore {
     /** Downsample the whole cover; retain neutral and dark pixels, without a preset palette. */
     fun prepare(source: Bitmap): Bitmap {
         val result = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
-        Canvas(result).drawBitmap(source, null, Rect(0, 0, 64, 64), Paint(Paint.FILTER_BITMAP_FLAG))
+        val software = if (source.config == Bitmap.Config.HARDWARE) source.copy(Bitmap.Config.ARGB_8888, false) else source
+        Canvas(result).drawBitmap(software, null, Rect(0, 0, 64, 64), Paint(Paint.FILTER_BITMAP_FLAG))
+        if (software !== source) software?.recycle()
         // Two small box passes remove readable cover details but preserve spatial color distribution.
         var pixels = IntArray(4096)
         result.getPixels(pixels, 0, 64, 0, 0, 64, 64)
