@@ -7,7 +7,28 @@ import kotlin.math.sin
 
 class FlowRenderer {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val start = System.currentTimeMillis()
+    private var lastFrameNanos = 0L
+    private var elapsed = 0f
+    private var phase = 0f
+    private var delta = 0.016f
+    private var currentTexture: Bitmap? = null
+    private var previousTexture: Bitmap? = null
+    private var textureMix = 1f
+    var artwork: Bitmap? = null
+        set(value) {
+            if (field === value) return
+            previousTexture = currentTexture
+            currentTexture = value
+            textureMix = 0f
+            field = value
+        }
+    var liveBeats = false
+    var debugView = false
+    private val defaultTexture = Bitmap.createBitmap(1,1,Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLACK) }
+    private var inputCurrent: BitmapShader? = null
+    private var inputPrevious: BitmapShader? = null
+    private var boundCurrent: Bitmap? = null
+    private var boundPrevious: Bitmap? = null
     private var runtimeShader: RuntimeShader? = null
     private var gpuShaderFailed = false
     private var smoothBeat = 0f
@@ -31,6 +52,11 @@ class FlowRenderer {
         uniform float graphicsMode;
         uniform float beat;
         uniform float bass;
+        uniform shader coverNow;
+        uniform shader coverBefore;
+        uniform float coverMix;
+        uniform float hasCover;
+        uniform float hadCover;
         layout(color) uniform half4 colorA;
         layout(color) uniform half4 colorB;
         layout(color) uniform half4 colorC;
@@ -59,7 +85,7 @@ class FlowRenderer {
                 sin(q.y*2.35+phase)+0.35*sin((q.x+q.y)*3.7-phase*0.65),
                 cos(q.x*2.20-phase*0.82)+0.35*cos((q.x-q.y)*3.55+phase*0.58)
             );
-            q+=musicWarp*(b*0.052+low*0.025);
+            q+=musicWarp*(b*0.22+low*0.10);
             q.x+=(0.055+b*0.018)*sin(q.y*3.0+t*0.10)+0.028*sin((q.x+q.y)*5.0-t*0.06);
             q.y+=(0.050+b*0.016)*cos(q.x*2.7-t*0.09)+0.026*cos((q.x-q.y)*4.6+t*0.055);
             return q;
@@ -69,6 +95,7 @@ class FlowRenderer {
             uv/=max(scale,0.42);
             float t=time*(0.88+beat*0.018);
             float2 p=liquidWarp(uv,t,beat,bass);
+            if(graphicsMode>0.5) p.x += 0.045*sin(uv.x*42.0);
             float n1=field(p*0.94,t+2.0);
             float n2=field(rot(p,0.92)*1.03+float2(0.24,-0.11),-t*0.78+7.0);
             float n3=field(rot(p,-0.61)*0.89+float2(-0.18,0.27),t*0.64+13.0);
@@ -81,40 +108,66 @@ class FlowRenderer {
             half3 col=mix(colorA.rgb,colorB.rgb,half(wb));
             col=mix(col,colorC.rgb,half(wc*0.80));
             col=mix(col,colorA.rgb,half(wa*0.46));
+            // Fold the sampled album texture into broad moving liquid regions.
+            float2 st=0.5+0.46*sin(p*1.25+float2(n2*0.7+t*0.065,n3*0.7-t*0.052));
+            float radius=mix(0.4,7.0,softness);
+            float2 coord=clamp(st,0.02,0.98)*64.0;
+            half3 now=coverNow.eval(coord).rgb*0.4;
+            half3 before=coverBefore.eval(coord).rgb*0.4;
+            for(int i=0;i<6;i++) {
+                float a=float(i)*1.04719755;
+                float2 offset=float2(cos(a),sin(a))*radius;
+                now+=coverNow.eval(coord+offset).rgb*0.1;
+                before+=coverBefore.eval(coord+offset).rgb*0.1;
+            }
+            col=mix(mix(col,before,half(hadCover)),mix(col,now,half(hasCover)),half(coverMix));
             float gloss=0.5+0.5*sin((p.x*0.60+p.y*0.82)*3.14159+n1*0.82-t*0.045);
             float depth=0.82+0.18*gloss+0.07*(n2+n3);
             // No beat brightness pumping: avoids strobe/flicker sensation.
             if(graphicsMode>0.5){ float ribs=sin((uv.x+0.035*sin(t*0.07))*34.0); depth*=0.96+0.055*ribs; }
             float softnessMix=mix(0.94,1.04,clamp(softness,0.0,1.0));
             col*=half(brightness*depth*softnessMix);
-            col*=half3(0.95,0.96,0.985);
+            col*=mix(half3(0.95,0.96,0.985),half3(1.0),half(mix(hadCover,hasCover,coverMix)));
             return half4(col,1.0);
         }
     """.trimIndent()
 
-    private fun integratedTime(): Float {
-        val s=(System.currentTimeMillis()-start)/1000f
+    private fun advanceTime() {
+        val now=android.os.SystemClock.elapsedRealtimeNanos()
+        delta=if(lastFrameNanos==0L) 0.016f else ((now-lastFrameNanos)/1e9f).coerceIn(0f,0.1f)
+        lastFrameNanos=now
+        elapsed+=delta
         val lo=minOf(speedMin,speedMax); val hi=maxOf(speedMin,speedMax)
-        val mid=(lo+hi)*0.5f; val amp=(hi-lo)*0.5f; val omega=0.18f
-        return mid*s+(amp/omega)*(1f-cos((omega*s).toDouble()).toFloat())
+        val speed=(lo+hi)*0.5f+(hi-lo)*0.5f*sin(elapsed*0.18f)
+        phase+=delta*speed
+        textureMix=(textureMix+delta/1.6f).coerceAtMost(1f)
     }
+    private fun integratedTime() = phase
 
     private fun updateMusicMotion() {
-        val targetBeat=(BeatAnalyzer.level*beatStrength).coerceIn(0f,0.62f)
-        val targetBass=(BeatAnalyzer.bass*beatStrength).coerceIn(0f,0.55f)
+        val targetBeat=if(liveBeats && BeatAnalyzer.hasSignal()) (BeatAnalyzer.level*beatStrength).coerceIn(0f,1f) else 0f
+        val targetBass=if(liveBeats && BeatAnalyzer.hasSignal()) (BeatAnalyzer.bass*beatStrength).coerceIn(0f,1f) else 0f
         // Slow attack + slower release prevents rapid frame-to-frame flashing.
-        val beatRate=if(targetBeat>smoothBeat) 0.075f else 0.035f
-        val bassRate=if(targetBass>smoothBass) 0.055f else 0.025f
+        val beatRate=1f-kotlin.math.exp(-delta/(if(targetBeat>smoothBeat) 0.08f else 0.35f))
+        val bassRate=1f-kotlin.math.exp(-delta/0.24f)
         smoothBeat+=(targetBeat-smoothBeat)*beatRate
         smoothBass+=(targetBass-smoothBass)*bassRate
     }
 
     fun draw(canvas: Canvas) {
+        advanceTime()
         updateMusicMotion()
         if(Build.VERSION.SDK_INT>=33&&canvas.isHardwareAccelerated&&!gpuShaderFailed){
-            try{drawGpu(canvas);return}catch(_:Throwable){gpuShaderFailed=true;runtimeShader=null}
+            try{drawGpu(canvas);drawDebug(canvas);return}catch(_:Throwable){gpuShaderFailed=true;runtimeShader=null}
         }
         drawFallback(canvas)
+        drawDebug(canvas)
+    }
+
+    private fun drawDebug(canvas: Canvas) {
+        if(!debugView) return
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.WHITE; textSize=28f; setShadowLayer(3f,1f,1f,Color.BLACK) }
+        canvas.drawText("${if(gpuShaderFailed || Build.VERSION.SDK_INT<33) "Canvas" else "GPU"} • ${if(artwork==null) "Palette" else "Album"} • ${BeatAnalyzer.statusText()}",20f,50f,p)
     }
 
     private fun drawGpu(canvas:Canvas){
@@ -125,6 +178,15 @@ class FlowRenderer {
         shader.setFloatUniform("graphicsMode",if(graphicsMode=="fluted")1f else 0f)
         shader.setFloatUniform("beat",smoothBeat); shader.setFloatUniform("bass",smoothBass)
         shader.setColorUniform("colorA",colors[0]); shader.setColorUniform("colorB",colors[1%colors.size]); shader.setColorUniform("colorC",colors[2%colors.size])
+        val now=currentTexture?:defaultTexture
+        val before=previousTexture?:defaultTexture
+        if(boundCurrent !== now) { inputCurrent=BitmapShader(now,Shader.TileMode.MIRROR,Shader.TileMode.MIRROR); boundCurrent=now }
+        if(boundPrevious !== before) { inputPrevious=BitmapShader(before,Shader.TileMode.MIRROR,Shader.TileMode.MIRROR); boundPrevious=before }
+        shader.setInputShader("coverNow",inputCurrent!!); shader.setInputShader("coverBefore",inputPrevious!!)
+        shader.setFloatUniform("coverMix",textureMix)
+        shader.setFloatUniform("hasCover",if(currentTexture==null)0f else 1f)
+        shader.setFloatUniform("hadCover",if(previousTexture==null)0f else 1f)
+        paint.isFilterBitmap=true
         paint.shader=shader; canvas.drawRect(0f,0f,canvas.width.toFloat(),canvas.height.toFloat(),paint); paint.shader=null
     }
 
