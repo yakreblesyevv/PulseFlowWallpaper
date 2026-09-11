@@ -25,7 +25,7 @@ object FlowSettings {
 
     fun saveSpeed(context: Context, value: Float) = saveFloat(context, "speed", value.coerceIn(0.05f, 4.5f))
     fun saveSpeedRange(context: Context, min: Float, max: Float) {
-        val lo = min.coerceIn(0.05f, 4.5f)
+        val lo = min.coerceIn(0.05f, 4.49f)
         val hi = max.coerceIn(lo + 0.01f, 4.5f)
         prefs(context).edit().putFloat("speed_min", lo).putFloat("speed_max", hi).apply()
         broadcast(context)
