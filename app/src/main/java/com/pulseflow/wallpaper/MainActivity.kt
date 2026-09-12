@@ -166,7 +166,7 @@ class MainActivity : Activity() {
 
         root.addView(text("PULSEFLOW", 28f).apply { gravity = Gravity.CENTER })
         root.addView(text("Müziğinin renkleri, akış hâlinde", 14f, Color.LTGRAY).apply { gravity = Gravity.CENTER })
-        root.addView(text("v0.25 • İpeksi akış ve güçlü ritim", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
+        root.addView(text("v0.26 • Hızlı ritim ve müzik uygulamaları", 11f, Color.rgb(196, 180, 255), 4).apply { gravity = Gravity.CENTER })
         root.addView(previewCard, LinearLayout.LayoutParams(-1, dp(235)).apply {
             topMargin = dp(12)
             bottomMargin = dp(8)

@@ -64,7 +64,7 @@ object BeatAnalyzer {
             val range = Visualizer.getCaptureSizeRange()
             v.captureSize = range[1]
             v.scalingMode = Visualizer.SCALING_MODE_NORMALIZED
-            val rate = (Visualizer.getMaxCaptureRate() * 0.90f).toInt()
+            val rate = Visualizer.getMaxCaptureRate()
             v.setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
                 override fun onWaveFormDataCapture(visualizer: Visualizer?, waveform: ByteArray?, samplingRate: Int) = Unit
 
@@ -170,9 +170,9 @@ object BeatAnalyzer {
         // Beat pulse favors transients; sustained bass remains visible but not pegged.
         val punch = (normalized * 0.48f + transient * 0.78f).coerceIn(0f, 1f)
         envelope = if (punch > envelope) {
-            envelope * 0.12f + punch * 0.88f
+            punch
         } else {
-            envelope * 0.88f + punch * 0.12f
+            envelope * 0.70f + punch * 0.30f
         }
 
         bass = normalized

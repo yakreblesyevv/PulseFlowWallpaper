@@ -2,6 +2,8 @@ package com.pulseflow.wallpaper
 
 import android.app.Notification
 import android.content.*
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
@@ -78,7 +80,9 @@ class MusicNotificationListener : NotificationListenerService() {
             ?: all.firstOrNull { it.metadata != null }
         val notifications = runCatching { activeNotifications?.toList().orEmpty() }.getOrDefault(emptyList())
         val sbn = notifications.filter { token(it.notification) != null || it.notification.category == Notification.CATEGORY_TRANSPORT }
-            .sortedByDescending { it.postTime }.let { items -> items.firstOrNull { it.packageName == c?.packageName } ?: items.firstOrNull() }
+            .sortedByDescending { it.postTime }.let { items -> if (c == null) items.firstOrNull() else
+                items.firstOrNull { token(it.notification) == c.sessionToken }
+                    ?: items.firstOrNull { it.packageName == c.packageName } }
         val m = c?.metadata
         val n = sbn?.notification
         val isPlaying = c?.playbackState?.state == PlaybackState.STATE_PLAYING
@@ -98,20 +102,28 @@ class MusicNotificationListener : NotificationListenerService() {
         }
         val art = m?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: m?.getBitmap(MediaMetadata.METADATA_KEY_ART)
-            ?: m?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
             ?: notificationArt(n)
-        val fingerprint = "${c?.packageName ?: sbn?.packageName}|$title|$artist|${art?.generationId}|${art?.width}"
-        if (art == null) {
+            ?: m?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+        val coverUris = listOfNotNull(
+            m?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI),
+            m?.getString(MediaMetadata.METADATA_KEY_ART_URI),
+            m?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+        ).distinct().filter { Uri.parse(it).scheme == "content" }
+        val fingerprint = "${c?.packageName ?: sbn?.packageName}|$title|$artist|${art?.generationId}|${art?.width}|${coverUris.joinToString()}"
+        if (art == null && coverUris.isEmpty()) {
             // Cancel an older cover job while the next track is loading its artwork.
             generation++
             lastFingerprint = ""
         }
-        if (art != null && fingerprint != lastFingerprint) {
+        if ((art != null || coverUris.isNotEmpty()) && fingerprint != lastFingerprint) {
             lastFingerprint = fingerprint
             val request = ++generation
             worker.execute {
-                val prepared = runCatching { AlbumArtStore.prepare(art) }.getOrNull()
+                val loaded = if (art == null) coverUris.firstNotNullOfOrNull { loadContentCover(it) } else null
+                val prepared = runCatching { (art ?: loaded)?.let { AlbumArtStore.prepare(it) } }.getOrNull()
+                loaded?.recycle()
                 main.post {
+                    if (request == generation && prepared == null) lastFingerprint = ""
                     if (request == generation && prepared != null && connected && FlowSettings.loadAlbumColors(this)) {
                         val pixels=IntArray(4096)
                         prepared.getPixels(pixels,0,64,0,0,64,64)
@@ -127,6 +139,20 @@ class MusicNotificationListener : NotificationListenerService() {
         }
         if (changedPlaying) sendBroadcast(Intent(PaletteStore.ACTION_PALETTE).setPackage(packageName))
     }
+
+    // Players may publish a granted content URI instead of an embedded bitmap.
+    // Decode a bounded image on the worker, keeping provider I/O away from the UI.
+    private fun loadContentCover(value: String): Bitmap? = runCatching {
+        val uri = Uri.parse(value)
+        if (uri.scheme != "content") return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 512) sample *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+    }.getOrNull()
 
     private fun token(n: Notification): MediaSession.Token? = runCatching {
         if (Build.VERSION.SDK_INT >= 33) n.extras.getParcelable(Notification.EXTRA_MEDIA_SESSION, MediaSession.Token::class.java)

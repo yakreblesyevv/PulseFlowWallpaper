@@ -57,3 +57,7 @@ Stronger beat deformation, faster attack and smooth release on GPU and Canvas. R
 
 ### v0.25
 Video review showed stepped ripples near the end of the purple artwork transition. Explicit bilinear filtering fixes nearest-neighbor sampling on both RuntimeShader cover inputs; static sub-LSB dithering reduces gradient banding. Beat displacement is stronger and uses broader waves sampled from original coordinates to avoid amplifying existing folds. Faster beat/bass attack, smooth release, stronger Canvas fallback. No phone validation yet.
+
+
+### v0.26
+Use maximum supported FFT callback rate and immediate analyzer attack; reduce renderer attack/release latency. Output mix remains app-independent. Match notification to active session token before package to prevent unrelated artwork leakage. Add bounded worker decoding for granted content artwork URIs used by local players. Spotify, YouTube, YouTube Music and local player compatibility depends on exposed media sessions/artwork and device audio visualization support; no end-to-end device verification yet.

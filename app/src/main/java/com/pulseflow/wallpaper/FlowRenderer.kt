@@ -151,8 +151,8 @@ class FlowRenderer {
         val targetBeat=if(liveBeats && BeatAnalyzer.hasSignal()) (kotlin.math.sqrt(BeatAnalyzer.level.coerceIn(0f,1f))*beatStrength).coerceIn(0f,1f) else 0f
         val targetBass=if(liveBeats && BeatAnalyzer.hasSignal()) (kotlin.math.sqrt(BeatAnalyzer.bass.coerceIn(0f,1f))*beatStrength).coerceIn(0f,1f) else 0f
         // Catch short kick transients, then release smoothly; silence still yields zero.
-        val beatRate=1f-kotlin.math.exp(-delta/(if(targetBeat>smoothBeat) 0.025f else 0.25f))
-        val bassRate=1f-kotlin.math.exp(-delta/(if(targetBass>smoothBass) 0.045f else 0.30f))
+        val beatRate=1f-kotlin.math.exp(-delta/(if(targetBeat>smoothBeat) 0.010f else 0.14f))
+        val bassRate=1f-kotlin.math.exp(-delta/(if(targetBass>smoothBass) 0.018f else 0.18f))
         smoothBeat+=(targetBeat-smoothBeat)*beatRate
         smoothBass+=(targetBass-smoothBass)*bassRate
     }
