@@ -82,10 +82,10 @@ class FlowRenderer {
             // Stronger spatial response follows the beat without changing brightness.
             float phase=t*0.20;
             float2 musicWarp=float2(
-                sin(q.y*2.35+phase)+0.35*sin((q.x+q.y)*3.7-phase*0.65),
-                cos(q.x*2.20-phase*0.82)+0.35*cos((q.x-q.y)*3.55+phase*0.58)
+                sin(p.y*1.35+phase)+0.18*sin((p.x+p.y)*2.1-phase*0.65),
+                cos(p.x*1.30-phase*0.82)+0.18*cos((p.x-p.y)*2.0+phase*0.58)
             );
-            q+=musicWarp*(b*0.62+low*0.28);
+            q+=musicWarp*(b*0.90+low*0.42);
             q.x+=(0.055+b*0.018)*sin(q.y*3.0+t*0.10)+0.028*sin((q.x+q.y)*5.0-t*0.06);
             q.y+=(0.050+b*0.016)*cos(q.x*2.7-t*0.09)+0.026*cos((q.x-q.y)*4.6+t*0.055);
             return q;
@@ -128,6 +128,9 @@ class FlowRenderer {
             float softnessMix=mix(0.94,1.04,clamp(softness,0.0,1.0));
             col*=half(brightness*depth*softnessMix);
             col*=mix(half3(0.95,0.96,0.985),half3(1.0),half(mix(hadCover,hasCover,coverMix)));
+            // Static sub-level dither softens 8-bit gradient banding without temporal flicker.
+            float noise=fract(52.9829189*fract(dot(fragCoord,float2(0.06711056,0.00583715))))-0.5;
+            col=clamp(col+half3(noise/255.0),half3(0.0),half3(1.0));
             return half4(col,1.0);
         }
     """.trimIndent()
@@ -148,8 +151,8 @@ class FlowRenderer {
         val targetBeat=if(liveBeats && BeatAnalyzer.hasSignal()) (kotlin.math.sqrt(BeatAnalyzer.level.coerceIn(0f,1f))*beatStrength).coerceIn(0f,1f) else 0f
         val targetBass=if(liveBeats && BeatAnalyzer.hasSignal()) (kotlin.math.sqrt(BeatAnalyzer.bass.coerceIn(0f,1f))*beatStrength).coerceIn(0f,1f) else 0f
         // Catch short kick transients, then release smoothly; silence still yields zero.
-        val beatRate=1f-kotlin.math.exp(-delta/(if(targetBeat>smoothBeat) 0.035f else 0.22f))
-        val bassRate=1f-kotlin.math.exp(-delta/(if(targetBass>smoothBass) 0.06f else 0.28f))
+        val beatRate=1f-kotlin.math.exp(-delta/(if(targetBeat>smoothBeat) 0.025f else 0.25f))
+        val bassRate=1f-kotlin.math.exp(-delta/(if(targetBass>smoothBass) 0.045f else 0.30f))
         smoothBeat+=(targetBeat-smoothBeat)*beatRate
         smoothBass+=(targetBass-smoothBass)*bassRate
     }
@@ -181,8 +184,8 @@ class FlowRenderer {
         shader.setColorUniform("colorA",colors[0]); shader.setColorUniform("colorB",colors[1%colors.size]); shader.setColorUniform("colorC",colors[2%colors.size])
         val now=currentTexture?:defaultTexture
         val before=previousTexture?:defaultTexture
-        if(boundCurrent !== now) { inputCurrent=BitmapShader(now,Shader.TileMode.MIRROR,Shader.TileMode.MIRROR); boundCurrent=now }
-        if(boundPrevious !== before) { inputPrevious=BitmapShader(before,Shader.TileMode.MIRROR,Shader.TileMode.MIRROR); boundPrevious=before }
+        if(boundCurrent !== now) { inputCurrent=BitmapShader(now,Shader.TileMode.MIRROR,Shader.TileMode.MIRROR).apply { setFilterMode(BitmapShader.FILTER_MODE_LINEAR) }; boundCurrent=now }
+        if(boundPrevious !== before) { inputPrevious=BitmapShader(before,Shader.TileMode.MIRROR,Shader.TileMode.MIRROR).apply { setFilterMode(BitmapShader.FILTER_MODE_LINEAR) }; boundPrevious=before }
         shader.setInputShader("coverNow",inputCurrent!!); shader.setInputShader("coverBefore",inputPrevious!!)
         shader.setFloatUniform("coverMix",textureMix)
         shader.setFloatUniform("hasCover",if(currentTexture==null)0f else 1f)
@@ -198,10 +201,10 @@ class FlowRenderer {
             val raw=colors[i%colors.size]
             val rr=(Color.red(raw)*brightness).toInt().coerceIn(0,255); val gg=(Color.green(raw)*brightness).toInt().coerceIn(0,255); val bb=(Color.blue(raw)*brightness).toInt().coerceIn(0,255)
             val phase=i*0.71f; val p=t*(0.070f+i*0.0035f)+phase; val q=t*(0.052f+i*0.0027f)+phase*1.37f
-            val wobble=smoothBeat*(0.085f+0.018f*(i%3))+smoothBass*0.04f
+            val wobble=smoothBeat*(0.115f+0.025f*(i%3))+smoothBass*0.06f
             val x=w*(0.50f+(0.48f+wobble)*sin((p+smoothBass*0.28f).toDouble()).toFloat())
             val y=h*(0.50f+(0.44f+wobble*0.8f)*cos((q-smoothBeat*0.24f).toDouble()).toFloat())
-            val radius=base*(0.92f+0.18f*sin((p*0.7f+q).toDouble()).toFloat()+smoothBeat*0.07f)
+            val radius=base*(0.92f+0.18f*sin((p*0.7f+q).toDouble()).toFloat()+smoothBeat*0.10f)
             paint.shader=RadialGradient(x,y,radius,Color.argb(if(i<4)150 else 92,rr,gg,bb),Color.TRANSPARENT,Shader.TileMode.CLAMP)
             canvas.drawCircle(x,y,radius,paint)
         }

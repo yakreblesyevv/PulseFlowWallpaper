@@ -53,3 +53,7 @@ Spotify / YouTube Music artwork delivery, pause/resume, reboot persistence, and 
 
 ### v0.24
 Stronger beat deformation, faster attack and smooth release on GPU and Canvas. Removes beat-dependent time scaling to prevent phase jumps. Automatic cover colors enabled once on upgrade; notification access still required. Cancels pending stale artwork when the next cover is unavailable. No gallery picker. Device behavior and Play Protect installation remain unverified.
+
+
+### v0.25
+Video review showed stepped ripples near the end of the purple artwork transition. Explicit bilinear filtering fixes nearest-neighbor sampling on both RuntimeShader cover inputs; static sub-LSB dithering reduces gradient banding. Beat displacement is stronger and uses broader waves sampled from original coordinates to avoid amplifying existing folds. Faster beat/bass attack, smooth release, stronger Canvas fallback. No phone validation yet.
