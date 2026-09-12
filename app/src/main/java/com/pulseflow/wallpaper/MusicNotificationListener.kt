@@ -1,110 +1,157 @@
 package com.pulseflow.wallpaper
 
 import android.app.Notification
+import android.content.*
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.Drawable
-import android.graphics.drawable.Icon
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSession
-import android.os.Build
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
+import android.os.*
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import java.util.concurrent.Executors
 
 class MusicNotificationListener : NotificationListenerService() {
-    private var lastFingerprint: String = ""
+    private val main = Handler(Looper.getMainLooper())
+    private val worker = Executors.newSingleThreadExecutor()
+    private val controllers = linkedMapOf<String, Pair<MediaController, MediaController.Callback>>()
+    private var generation = 0
+    private var lastFingerprint = ""
+    private var lastTextureHash: Int? = null
+    private var connected = false
+    private var manager: MediaSessionManager? = null
+    private val sessionsChanged = MediaSessionManager.OnActiveSessionsChangedListener { refreshControllers() }
+    private val settingsChanged = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) { updateCurrent() }
+    }
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        if (!FlowSettings.loadAlbumColors(this)) return
-        activeNotifications
-            ?.sortedByDescending { it.postTime }
-            ?.firstOrNull { isMediaNotification(it.notification) }
-            ?.let { process(it) }
+        if (connected) return
+        connected = true
+        AlbumArtStore.initialize(this)
+        val filter = IntentFilter(FlowSettings.ACTION_SETTINGS_CHANGED)
+        registerReceiver(settingsChanged, filter, "$packageName.INTERNAL", null, RECEIVER_NOT_EXPORTED)
+        manager = getSystemService(MediaSessionManager::class.java)
+        runCatching { manager?.addOnActiveSessionsChangedListener(sessionsChanged, ComponentName(this, javaClass), main) }
+        refreshControllers()
     }
 
-    override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        if (!FlowSettings.loadAlbumColors(this)) return
-        sbn?.let { process(it) }
+    override fun onNotificationPosted(sbn: StatusBarNotification?) { refreshControllers() }
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) { refreshControllers() }
+
+    private fun refreshControllers() {
+        if (!connected) return
+        val active = runCatching { manager?.getActiveSessions(ComponentName(this, javaClass)).orEmpty() }.getOrDefault(emptyList())
+        val notifications = runCatching { activeNotifications?.toList().orEmpty() }.getOrDefault(emptyList())
+        val fromNotifications = notifications.mapNotNull { sbn ->
+            token(sbn.notification)?.let { runCatching { MediaController(this, it) }.getOrNull() }
+        }
+        val all = (active + fromNotifications).distinctBy { it.sessionToken }
+        val keys = all.map { it.sessionToken.toString() }.toSet()
+        controllers.keys.toList().filter { it !in keys }.forEach { key ->
+            controllers.remove(key)?.let { (c, callback) -> runCatching { c.unregisterCallback(callback) } }
+        }
+        all.forEach { c ->
+            val key = c.sessionToken.toString()
+            if (key !in controllers) {
+                val callback = object : MediaController.Callback() {
+                    override fun onMetadataChanged(m: MediaMetadata?) { updateCurrent() }
+                    override fun onPlaybackStateChanged(s: PlaybackState?) { updateCurrent() }
+                    override fun onSessionDestroyed() { refreshControllers() }
+                }
+                runCatching { c.registerCallback(callback, main) }
+                controllers[key] = c to callback
+            }
+        }
+        updateCurrent()
     }
 
-    private fun process(sbn: StatusBarNotification) {
-        val notification = sbn.notification ?: return
-        val token = mediaToken(notification)
-        if (notification.category != Notification.CATEGORY_TRANSPORT && token == null) return
-
-        val controller = token?.let { runCatching { MediaController(this, it) }.getOrNull() }
-        val metadata = controller?.metadata
-
-        val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
-            ?: notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-        val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
-            ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
-            ?: notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
-        val album = metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty()
-        val fingerprint = "${sbn.packageName}|$title|$artist|$album"
-
-        getSharedPreferences("now_playing", MODE_PRIVATE)
-            .edit()
-            .putString("title", title)
-            .putString("artist", artist)
-            .putString("album", album)
-            .putString("package", sbn.packageName)
-            .apply()
-
-        val artwork = metadataArtwork(metadata) ?: extractArtwork(notification)
-        if (artwork != null && fingerprint != lastFingerprint) {
+    private fun updateCurrent() {
+        if (!connected) return
+        val all = controllers.values.map { it.first }
+        val c = all.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+            ?: all.firstOrNull { it.metadata != null }
+        val notifications = runCatching { activeNotifications?.toList().orEmpty() }.getOrDefault(emptyList())
+        val sbn = notifications.filter { token(it.notification) != null || it.notification.category == Notification.CATEGORY_TRANSPORT }
+            .sortedByDescending { it.postTime }.let { items -> items.firstOrNull { it.packageName == c?.packageName } ?: items.firstOrNull() }
+        val m = c?.metadata
+        val n = sbn?.notification
+        val isPlaying = c?.playbackState?.state == PlaybackState.STATE_PLAYING
+        val changedPlaying = AlbumArtStore.playing != isPlaying
+        AlbumArtStore.playing = isPlaying
+        val title = m?.getString(MediaMetadata.METADATA_KEY_TITLE)
+            ?: n?.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val artist = m?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+            ?: n?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+        getSharedPreferences("now_playing", MODE_PRIVATE).edit().putString("title", title)
+            .putString("artist", artist).putBoolean("playing", isPlaying).apply()
+        if (!FlowSettings.loadAlbumColors(this)) {
+            generation++
+            lastFingerprint = ""
+            lastTextureHash = null
+            return
+        }
+        val art = m?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: m?.getBitmap(MediaMetadata.METADATA_KEY_ART)
+            ?: m?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            ?: notificationArt(n)
+        val fingerprint = "${c?.packageName ?: sbn?.packageName}|$title|$artist|${art?.generationId}|${art?.width}"
+        if (art == null) {
+            // Cancel an older cover job while the next track is loading its artwork.
+            generation++
+            lastFingerprint = ""
+        }
+        if (art != null && fingerprint != lastFingerprint) {
             lastFingerprint = fingerprint
-            PaletteStore.save(this, artwork)
+            val request = ++generation
+            worker.execute {
+                val prepared = runCatching { AlbumArtStore.prepare(art) }.getOrNull()
+                main.post {
+                    if (request == generation && prepared != null && connected && FlowSettings.loadAlbumColors(this)) {
+                        val pixels=IntArray(4096)
+                        prepared.getPixels(pixels,0,64,0,0,64,64)
+                        val hash=pixels.contentHashCode()
+                        if(lastTextureHash != hash) {
+                            lastTextureHash=hash
+                            AlbumArtStore.publish(this, prepared)
+                            PaletteStore.save(this, prepared)
+                        }
+                    }
+                }
+            }
         }
+        if (changedPlaying) sendBroadcast(Intent(PaletteStore.ACTION_PALETTE).setPackage(packageName))
     }
 
-    private fun mediaToken(notification: Notification): MediaSession.Token? = if (Build.VERSION.SDK_INT >= 33) {
-        notification.extras.getParcelable(Notification.EXTRA_MEDIA_SESSION, MediaSession.Token::class.java)
-    } else {
-        @Suppress("DEPRECATION") notification.extras.getParcelable(Notification.EXTRA_MEDIA_SESSION)
-    }
+    private fun token(n: Notification): MediaSession.Token? = runCatching {
+        if (Build.VERSION.SDK_INT >= 33) n.extras.getParcelable(Notification.EXTRA_MEDIA_SESSION, MediaSession.Token::class.java)
+        else { @Suppress("DEPRECATION") n.extras.getParcelable<MediaSession.Token>(Notification.EXTRA_MEDIA_SESSION) }
+    }.getOrNull()
 
-    private fun isMediaNotification(notification: Notification): Boolean =
-        notification.category == Notification.CATEGORY_TRANSPORT || mediaToken(notification) != null
-
-    private fun metadataArtwork(metadata: MediaMetadata?): Bitmap? {
-        if (metadata == null) return null
-        metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)?.let { return it }
-        metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)?.let { return it }
-        metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)?.let { return it }
-        return null
-    }
-
-    private fun extractArtwork(notification: Notification): Bitmap? {
-        if (Build.VERSION.SDK_INT >= 33) {
-            notification.extras.getParcelable(Notification.EXTRA_LARGE_ICON_BIG, Bitmap::class.java)?.let { return it }
-            notification.extras.getParcelable(Notification.EXTRA_LARGE_ICON, Bitmap::class.java)?.let { return it }
-        } else {
-            @Suppress("DEPRECATION") notification.extras.getParcelable<Bitmap>(Notification.EXTRA_LARGE_ICON_BIG)?.let { return it }
-            @Suppress("DEPRECATION") notification.extras.getParcelable<Bitmap>(Notification.EXTRA_LARGE_ICON)?.let { return it }
+    private fun notificationArt(n: Notification?): Bitmap? = runCatching {
+        val drawable = n?.getLargeIcon()?.loadDrawable(this) ?: return null
+        if (drawable is BitmapDrawable) return drawable.bitmap
+        Bitmap.createBitmap(128,128,Bitmap.Config.ARGB_8888).also {
+            drawable.setBounds(0,0,128,128); drawable.draw(Canvas(it))
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            notification.getLargeIcon()?.let { icon -> iconToBitmap(icon)?.let { return it } }
-        }
-        return null
-    }
+    }.getOrNull()
 
-    private fun iconToBitmap(icon: Icon): Bitmap? {
-        val drawable = try { icon.loadDrawable(this) } catch (_: Exception) { null } ?: return null
-        return drawableToBitmap(drawable)
+    private fun disconnect() {
+        if (!connected) return
+        connected = false
+        AlbumArtStore.playing = false
+        sendBroadcast(Intent(PaletteStore.ACTION_PALETTE).setPackage(packageName))
+        generation++
+        runCatching { unregisterReceiver(settingsChanged) }
+        runCatching { manager?.removeOnActiveSessionsChangedListener(sessionsChanged) }
+        controllers.values.forEach { (c, callback) -> runCatching { c.unregisterCallback(callback) } }
+        controllers.clear()
     }
-
-    private fun drawableToBitmap(drawable: Drawable): Bitmap {
-        if (drawable is BitmapDrawable && drawable.bitmap != null) return drawable.bitmap
-        val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 512
-        val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 512
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
-            val canvas = Canvas(bitmap)
-            drawable.setBounds(0, 0, canvas.width, canvas.height)
-            drawable.draw(canvas)
-        }
-    }
+    override fun onListenerDisconnected() { disconnect(); super.onListenerDisconnected() }
+    override fun onDestroy() { disconnect(); worker.shutdown(); super.onDestroy() }
 }
