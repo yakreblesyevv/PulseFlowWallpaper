@@ -26,8 +26,8 @@ class RangeSliderView @JvmOverloads constructor(
     fun configure(min: Float, max: Float, low: Float, high: Float) {
         minValue = min
         maxValue = max
-        this.low = low.coerceIn(min, max)
-        this.high = high.coerceIn(this.low, max)
+        this.low = low.coerceIn(min, max-0.01f)
+        this.high = high.coerceIn(this.low+0.01f, max)
         invalidate()
     }
 
@@ -106,8 +106,8 @@ class RangeSliderView @JvmOverloads constructor(
 
     private fun updateFromX(x: Float) {
         val v = xToValue(x)
-        if (activeThumb == 1) low = v.coerceAtMost(high - 0.01f)
-        if (activeThumb == 2) high = v.coerceAtLeast(low + 0.01f)
+        if (activeThumb == 1) low = v.coerceIn(minValue, high - 0.01f)
+        if (activeThumb == 2) high = v.coerceIn(low + 0.01f, maxValue)
         invalidate()
         listener?.invoke(low, high)
     }

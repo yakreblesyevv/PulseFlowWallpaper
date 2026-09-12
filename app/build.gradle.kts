@@ -10,8 +10,8 @@ android {
         applicationId = "com.pulseflow.wallpaper.dev"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.20"
+        versionCode = 24
+        versionName = "0.24"
     }
     buildTypes {
         release {
