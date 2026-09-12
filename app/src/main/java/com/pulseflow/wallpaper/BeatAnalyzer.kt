@@ -24,7 +24,15 @@ object BeatAnalyzer {
     @Volatile var running: Boolean = false
         private set
 
+    private val consumers=mutableSetOf<String>()
+    @Synchronized fun setConsumer(context: Context, key: String, active: Boolean): Boolean {
+        if(active) { consumers.add(key); return start(context) }
+        consumers.remove(key)
+        if(consumers.isEmpty()) stop()
+        return false
+    }
     private var visualizer: Visualizer? = null
+    @Volatile private var lastEnergyMs=0L
     private var envelope = 0f
     private var baseline = 0.025f
     private var peakTracker = 0.18f
@@ -32,7 +40,7 @@ object BeatAnalyzer {
     private var previousNormalized = 0f
 
     fun hasSignal(nowMs: Long = SystemClock.elapsedRealtime()): Boolean =
-        running && callbackCount > 0 && nowMs - lastCallbackMs < 1400L
+        running && callbackCount > 0 && nowMs - lastCallbackMs < 1400L && nowMs-lastEnergyMs<1000L
 
     fun statusText(): String = when {
         !running -> "OFF"
@@ -52,10 +60,11 @@ object BeatAnalyzer {
 
         return try {
             val v = Visualizer(0)
+            visualizer = v
             val range = Visualizer.getCaptureSizeRange()
             v.captureSize = range[1]
             v.scalingMode = Visualizer.SCALING_MODE_NORMALIZED
-            val rate = (Visualizer.getMaxCaptureRate() * 0.90f).toInt()
+            val rate = Visualizer.getMaxCaptureRate()
             v.setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
                 override fun onWaveFormDataCapture(visualizer: Visualizer?, waveform: ByteArray?, samplingRate: Int) = Unit
 
@@ -130,6 +139,7 @@ object BeatAnalyzer {
 
         // Weighted bass energy. Log compression prevents loud tracks from pinning at 1.00.
         val linear = sub * 1.20f + mainBass * 0.95f + lowMid * 0.08f + strongest * 0.035f
+        if(linear>0.002f) lastEnergyMs=SystemClock.elapsedRealtime()
         val energy = (ln(1.0 + linear * 5.0) / ln(6.0)).toFloat().coerceIn(0f, 1.15f)
         rawBass = energy.coerceIn(0f, 1f)
 
@@ -160,9 +170,9 @@ object BeatAnalyzer {
         // Beat pulse favors transients; sustained bass remains visible but not pegged.
         val punch = (normalized * 0.48f + transient * 0.78f).coerceIn(0f, 1f)
         envelope = if (punch > envelope) {
-            envelope * 0.12f + punch * 0.88f
+            punch
         } else {
-            envelope * 0.88f + punch * 0.12f
+            envelope * 0.70f + punch * 0.30f
         }
 
         bass = normalized
