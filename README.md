@@ -49,3 +49,7 @@ This compiles the actual shader and checks neutral colors, animation continuity,
 ## Device verification remaining
 
 Spotify / YouTube Music artwork delivery, pause/resume, reboot persistence, and audio visualizer availability must be checked on the target phone. Android audio capture behavior varies by player/device. No silent input is presented as an active beat signal. The GPU liquid renderer requires Android 13+; Android 8–12 use the existing Canvas fallback. Visual similarity to Diffuse remains a reference target, not a pixel-identical claim.
+
+
+### v0.24
+Stronger beat deformation, faster attack and smooth release on GPU and Canvas. Removes beat-dependent time scaling to prevent phase jumps. Automatic cover colors enabled once on upgrade; notification access still required. Cancels pending stale artwork when the next cover is unavailable. No gallery picker. Device behavior and Play Protect installation remain unverified.

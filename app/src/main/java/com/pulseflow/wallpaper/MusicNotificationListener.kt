@@ -93,6 +93,7 @@ class MusicNotificationListener : NotificationListenerService() {
         if (!FlowSettings.loadAlbumColors(this)) {
             generation++
             lastFingerprint = ""
+            lastTextureHash = null
             return
         }
         val art = m?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
@@ -100,6 +101,11 @@ class MusicNotificationListener : NotificationListenerService() {
             ?: m?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
             ?: notificationArt(n)
         val fingerprint = "${c?.packageName ?: sbn?.packageName}|$title|$artist|${art?.generationId}|${art?.width}"
+        if (art == null) {
+            // Cancel an older cover job while the next track is loading its artwork.
+            generation++
+            lastFingerprint = ""
+        }
         if (art != null && fingerprint != lastFingerprint) {
             lastFingerprint = fingerprint
             val request = ++generation

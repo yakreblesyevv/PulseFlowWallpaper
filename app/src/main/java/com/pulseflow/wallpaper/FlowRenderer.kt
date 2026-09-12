@@ -74,18 +74,18 @@ class FlowRenderer {
             float2 q=p;
             float a=field(q*0.82+float2(0.0,t*0.032),t);
             float bb=field(rot(q,1.5708)*0.88+float2(t*0.026,0.0),t+5.0);
-            q+=float2(a,bb)*(0.29+b*0.055);
+            q+=float2(a,bb)*(0.29+b*0.16);
             float c=field(q*1.24+float2(t*0.018,-t*0.023),t+10.0);
             float d=field(rot(q,-0.73)*1.18+float2(-t*0.020,t*0.015),t+16.0);
-            q+=float2(c,d)*(0.18+low*0.045);
+            q+=float2(c,d)*(0.18+low*0.12);
 
-            // Deliberately gentle music motion: no flash-like radial pumping.
+            // Stronger spatial response follows the beat without changing brightness.
             float phase=t*0.20;
             float2 musicWarp=float2(
                 sin(q.y*2.35+phase)+0.35*sin((q.x+q.y)*3.7-phase*0.65),
                 cos(q.x*2.20-phase*0.82)+0.35*cos((q.x-q.y)*3.55+phase*0.58)
             );
-            q+=musicWarp*(b*0.22+low*0.10);
+            q+=musicWarp*(b*0.62+low*0.28);
             q.x+=(0.055+b*0.018)*sin(q.y*3.0+t*0.10)+0.028*sin((q.x+q.y)*5.0-t*0.06);
             q.y+=(0.050+b*0.016)*cos(q.x*2.7-t*0.09)+0.026*cos((q.x-q.y)*4.6+t*0.055);
             return q;
@@ -93,7 +93,7 @@ class FlowRenderer {
         half4 main(float2 fragCoord){
             float2 uv=(fragCoord-0.5*resolution)/min(resolution.x,resolution.y);
             uv/=max(scale,0.42);
-            float t=time*(0.88+beat*0.018);
+            float t=time*0.88;
             float2 p=liquidWarp(uv,t,beat,bass);
             if(graphicsMode>0.5) p.x += 0.045*sin(uv.x*42.0);
             float n1=field(p*0.94,t+2.0);
@@ -145,11 +145,11 @@ class FlowRenderer {
     private fun integratedTime() = phase
 
     private fun updateMusicMotion() {
-        val targetBeat=if(liveBeats && BeatAnalyzer.hasSignal()) (BeatAnalyzer.level*beatStrength).coerceIn(0f,1f) else 0f
-        val targetBass=if(liveBeats && BeatAnalyzer.hasSignal()) (BeatAnalyzer.bass*beatStrength).coerceIn(0f,1f) else 0f
-        // Slow attack + slower release prevents rapid frame-to-frame flashing.
-        val beatRate=1f-kotlin.math.exp(-delta/(if(targetBeat>smoothBeat) 0.08f else 0.35f))
-        val bassRate=1f-kotlin.math.exp(-delta/0.24f)
+        val targetBeat=if(liveBeats && BeatAnalyzer.hasSignal()) (kotlin.math.sqrt(BeatAnalyzer.level.coerceIn(0f,1f))*beatStrength).coerceIn(0f,1f) else 0f
+        val targetBass=if(liveBeats && BeatAnalyzer.hasSignal()) (kotlin.math.sqrt(BeatAnalyzer.bass.coerceIn(0f,1f))*beatStrength).coerceIn(0f,1f) else 0f
+        // Catch short kick transients, then release smoothly; silence still yields zero.
+        val beatRate=1f-kotlin.math.exp(-delta/(if(targetBeat>smoothBeat) 0.035f else 0.22f))
+        val bassRate=1f-kotlin.math.exp(-delta/(if(targetBass>smoothBass) 0.06f else 0.28f))
         smoothBeat+=(targetBeat-smoothBeat)*beatRate
         smoothBass+=(targetBass-smoothBass)*bassRate
     }
@@ -193,15 +193,15 @@ class FlowRenderer {
 
     private fun drawFallback(canvas:Canvas){
         val w=canvas.width.toFloat(); val h=canvas.height.toFloat(); canvas.drawColor(Color.rgb(3,4,9))
-        val t=integratedTime()*(0.88f+smoothBeat*0.018f); val base=maxOf(w,h)*scale
+        val t=integratedTime()*0.88f; val base=maxOf(w,h)*scale
         for(i in 0 until 10){
             val raw=colors[i%colors.size]
             val rr=(Color.red(raw)*brightness).toInt().coerceIn(0,255); val gg=(Color.green(raw)*brightness).toInt().coerceIn(0,255); val bb=(Color.blue(raw)*brightness).toInt().coerceIn(0,255)
             val phase=i*0.71f; val p=t*(0.070f+i*0.0035f)+phase; val q=t*(0.052f+i*0.0027f)+phase*1.37f
-            val wobble=smoothBeat*(0.025f+0.006f*(i%3))+smoothBass*0.012f
-            val x=w*(0.50f+(0.48f+wobble)*sin((p+smoothBass*0.10f).toDouble()).toFloat())
-            val y=h*(0.50f+(0.44f+wobble*0.8f)*cos((q-smoothBeat*0.08f).toDouble()).toFloat())
-            val radius=base*(0.92f+0.18f*sin((p*0.7f+q).toDouble()).toFloat()+smoothBeat*0.025f)
+            val wobble=smoothBeat*(0.085f+0.018f*(i%3))+smoothBass*0.04f
+            val x=w*(0.50f+(0.48f+wobble)*sin((p+smoothBass*0.28f).toDouble()).toFloat())
+            val y=h*(0.50f+(0.44f+wobble*0.8f)*cos((q-smoothBeat*0.24f).toDouble()).toFloat())
+            val radius=base*(0.92f+0.18f*sin((p*0.7f+q).toDouble()).toFloat()+smoothBeat*0.07f)
             paint.shader=RadialGradient(x,y,radius,Color.argb(if(i<4)150 else 92,rr,gg,bb),Color.TRANSPARENT,Shader.TileMode.CLAMP)
             canvas.drawCircle(x,y,radius,paint)
         }

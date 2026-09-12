@@ -21,7 +21,7 @@ object FlowSettings {
     fun loadDebugView(context: Context) = prefs(context).getBoolean("debug_view", false)
     fun loadLiveBeats(context: Context) = prefs(context).getBoolean("live_beats", false)
     fun loadBeatStrength(context: Context) = prefs(context).getFloat("beat_strength", 0.55f)
-    fun loadAlbumColors(context: Context) = prefs(context).getBoolean("album_colors", false)
+    fun loadAlbumColors(context: Context) = prefs(context).getBoolean("album_colors", true)
 
     fun saveSpeed(context: Context, value: Float) = saveFloat(context, "speed", value.coerceIn(0.05f, 4.5f))
     fun saveSpeedRange(context: Context, min: Float, max: Float) {
@@ -43,7 +43,15 @@ object FlowSettings {
     fun saveBeatStrength(context: Context, value: Float) = saveFloat(context, "beat_strength", value.coerceIn(0f, 1f))
     fun saveAlbumColors(context: Context, value: Boolean) = saveBool(context, "album_colors", value)
 
-    private fun prefs(context: Context) = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+    private fun prefs(context: Context): android.content.SharedPreferences {
+        val p = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        // Enable automatic cover colors once for this upgrade; later user choices persist.
+        if (!p.getBoolean("automatic_cover_v24", false)) {
+            p.edit().putBoolean("album_colors", true)
+                .putBoolean("automatic_cover_v24", true).apply()
+        }
+        return p
+    }
     private fun broadcast(context: Context) {
         context.sendBroadcast(Intent(ACTION_SETTINGS_CHANGED).setPackage(context.packageName))
     }
